@@ -14,7 +14,7 @@ function ChatMessages({ messages }) {
       {messages.map((m, i) => (
         <div key={i} className={`chat-message ${m.from}`}>
           <span className="message-sender">
-            {m.from === 'you' ? 'You' : m.from === 'partner' ? 'Partner' : 'System'}
+            {m.senderName || (m.from === 'you' ? 'You' : m.from === 'partner' ? 'Partner' : 'System')}
           </span>
           <span className="message-text">{m.text}</span>
         </div>
@@ -29,9 +29,10 @@ const ICE_SERVERS = [
   { urls: 'stun:stun1.l.google.com:19302' }
 ]
 
-export default function CallPage({ ws, userId, queueCount, onEndCall }) {
+export default function CallPage({ ws, userId, userName, queueCount, onEndCall }) {
   const [matched, setMatched] = useState(false)
   const [peerId, setPeerId] = useState(null)
+  const [peerUsername, setPeerUsername] = useState(null)
   const [initiator, setInitiator] = useState(false)
   const [messages, setMessages] = useState([])
   const [isConnecting, setIsConnecting] = useState(true)
@@ -75,8 +76,10 @@ export default function CallPage({ ws, userId, queueCount, onEndCall }) {
         }
         setMatched(true)
         setPeerId(msg.peerId)
+        setPeerUsername(msg.peerUsername || 'Guest')
         setInitiator(!!msg.initiator)
         setIsConnecting(false)
+        appendSystem(`${msg.peerUsername || 'Guest'} (${msg.peerId.substring(0, 8)}...) connected`)
         startCall(msg.initiator, msg.peerId)
       }
       
@@ -85,7 +88,8 @@ export default function CallPage({ ws, userId, queueCount, onEndCall }) {
       }
       
       if (msg.type === 'partner_left') {
-        appendSystem('Partner disconnected')
+        const peerName = peerUsername || 'Partner'
+        appendSystem(`${peerName} disconnected`)
         // Only call handleNext if not already processing
         if (!isProcessingNextRef.current) {
           handleNext()
@@ -113,8 +117,8 @@ export default function CallPage({ ws, userId, queueCount, onEndCall }) {
     setMessages((m) => [...m, { from: 'system', text, timestamp: new Date() }])
   }
 
-  function appendMessage(from, text) {
-    setMessages((m) => [...m, { from, text, timestamp: new Date() }])
+  function appendMessage(from, text, senderName = null) {
+    setMessages((m) => [...m, { from, text, senderName, timestamp: new Date() }])
   }
 
   async function startCall(isInitiator, remotePeerId) {
@@ -161,7 +165,7 @@ export default function CallPage({ ws, userId, queueCount, onEndCall }) {
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = e.streams[0]
         }
-        appendSystem('Connected!')
+        appendSystem('Video connected!')
       }
 
       // Handle ICE candidates
@@ -213,7 +217,7 @@ export default function CallPage({ ws, userId, queueCount, onEndCall }) {
       appendSystem('Chat connected')
     }
     dc.onmessage = (e) => {
-      appendMessage('partner', e.data)
+      appendMessage('partner', e.data, peerUsername || 'Partner')
     }
     dc.onclose = () => {
       appendSystem('Chat disconnected')
@@ -313,6 +317,7 @@ export default function CallPage({ ws, userId, queueCount, onEndCall }) {
     
     setMatched(false)
     setPeerId(null)
+    setPeerUsername(null)
     setInitiator(false)
   }
 
@@ -330,6 +335,7 @@ export default function CallPage({ ws, userId, queueCount, onEndCall }) {
     // Clean up current connection first
     cleanupPeer()
     setMatched(false)
+    setPeerUsername(null)
     setMessages([])
     
     // Send next request to server
@@ -348,7 +354,7 @@ export default function CallPage({ ws, userId, queueCount, onEndCall }) {
   function sendChat(text) {
     if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
       dataChannelRef.current.send(text)
-      appendMessage('you', text)
+      appendMessage('you', text, userName || 'You')
     }
   }
 
@@ -384,12 +390,12 @@ export default function CallPage({ ws, userId, queueCount, onEndCall }) {
         <div className="header-left">
           <h2>AnyConnect</h2>
           <div className="debug-info">
-            <span className="debug-label">Your ID:</span>
+            <span className="debug-label">{userName || 'You'}:</span>
             <span className="debug-uuid">{userId ? userId.substring(0, 8) + '...' : 'Connecting...'}</span>
-            {peerId && (
+            {peerId && peerUsername && (
               <>
                 <span className="debug-separator">|</span>
-                <span className="debug-label">Partner ID:</span>
+                <span className="debug-label">{peerUsername}:</span>
                 <span className="debug-uuid">{peerId.substring(0, 8) + '...'}</span>
               </>
             )}
@@ -420,7 +426,7 @@ export default function CallPage({ ws, userId, queueCount, onEndCall }) {
               <p>Waiting for partner...</p>
             </div>
           )}
-          <div className="video-label">Partner</div>
+          <div className="video-label">{peerUsername || 'Partner'}</div>
         </div>
 
         <div className="video-wrapper local-video">
@@ -431,7 +437,7 @@ export default function CallPage({ ws, userId, queueCount, onEndCall }) {
             playsInline 
             className="video local"
           />
-          <div className="video-label">You</div>
+          <div className="video-label">{userName || 'You'}</div>
         </div>
       </div>
 

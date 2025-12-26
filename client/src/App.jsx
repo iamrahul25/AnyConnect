@@ -4,12 +4,25 @@ import CallPage from './components/CallPage'
 
 const SIGNALING_SERVER = 'ws://localhost:4001'
 
+// List of random meaningful names
+const RANDOM_NAMES = [
+  'John', 'Spider', 'Monkey', 'Lion', 'Hima', 'Tiger', 'Eagle', 'Wolf', 
+  'Bear', 'Fox', 'Dragon', 'Phoenix', 'Shark', 'Falcon', 'Panther', 'Hawk',
+  'Raven', 'Cobra', 'Jaguar', 'Leopard', 'Stallion', 'Thunder', 'Storm', 'Blaze',
+  'Shadow', 'Nova', 'Apex', 'Zenith', 'Vortex', 'Nexus', 'Orion', 'Atlas'
+]
+
+function getRandomName() {
+  return RANDOM_NAMES[Math.floor(Math.random() * RANDOM_NAMES.length)]
+}
+
 export default function App() {
   const [ws, setWs] = useState(null)
   const [onlineCount, setOnlineCount] = useState(0)
   const [queueCount, setQueueCount] = useState(0)
   const [isInCall, setIsInCall] = useState(false)
   const [userId, setUserId] = useState(null)
+  const [userName, setUserName] = useState(getRandomName())
 
   useEffect(() => {
     // Connect to signaling server on mount
@@ -24,6 +37,10 @@ export default function App() {
       const msg = JSON.parse(ev.data)
       if (msg.type === 'id') {
         setUserId(msg.id)
+        // Send username to server after receiving ID
+        if (userName) {
+          socket.send(JSON.stringify({ type: 'setUsername', username: userName }))
+        }
       }
       if (msg.type === 'onlineCount') {
         setOnlineCount(msg.count)
@@ -53,11 +70,23 @@ export default function App() {
   }, [])
 
   const handleStartCall = () => {
+    // Send username to server before starting call
+    if (ws && ws.readyState === WebSocket.OPEN && userName) {
+      ws.send(JSON.stringify({ type: 'setUsername', username: userName }))
+    }
     setIsInCall(true)
   }
 
   const handleEndCall = () => {
     setIsInCall(false)
+  }
+
+  const handleUserNameChange = (newName) => {
+    setUserName(newName)
+    // Update username on server if connected
+    if (ws && ws.readyState === WebSocket.OPEN && newName) {
+      ws.send(JSON.stringify({ type: 'setUsername', username: newName }))
+    }
   }
 
   return (
@@ -69,11 +98,14 @@ export default function App() {
           onStartCall={handleStartCall}
           ws={ws}
           userId={userId}
+          userName={userName}
+          onUserNameChange={handleUserNameChange}
         />
       ) : (
         <CallPage 
           ws={ws}
           userId={userId}
+          userName={userName}
           queueCount={queueCount}
           onEndCall={handleEndCall}
         />

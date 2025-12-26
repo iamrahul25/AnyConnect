@@ -36,6 +36,61 @@
   margin: 0;
 }
 
+.name-input-container {
+  margin: 25px 0 15px 0;
+  text-align: left;
+}
+
+.name-label {
+  display: block;
+  font-size: 0.95rem;
+  color: #666;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+.name-input-wrapper {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.name-input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 2px solid #e0e0e0;
+  border-radius: 10px;
+  font-size: 1rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+
+.name-input:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.random-name-button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  min-width: 50px;
+}
+
+.random-name-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.random-name-button:active {
+  transform: translateY(0);
+}
+
 .debug-info-home {
   display: flex;
   align-items: center;
@@ -166,6 +221,21 @@
   .debug-info-home {
     font-size: 0.8rem;
   }
+
+  .name-input-container {
+    margin: 20px 0 12px 0;
+  }
+
+  .name-input {
+    font-size: 0.95rem;
+    padding: 10px 14px;
+  }
+
+  .random-name-button {
+    padding: 10px 14px;
+    font-size: 1.1rem;
+    min-width: 45px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -202,6 +272,26 @@
   .debug-info-home .debug-uuid {
     padding: 3px 8px;
     font-size: 0.75rem;
+  }
+
+  .name-input-container {
+    margin: 15px 0 10px 0;
+  }
+
+  .name-label {
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+  }
+
+  .name-input {
+    font-size: 0.9rem;
+    padding: 10px 12px;
+  }
+
+  .random-name-button {
+    padding: 10px 12px;
+    font-size: 1rem;
+    min-width: 40px;
   }
 }
 

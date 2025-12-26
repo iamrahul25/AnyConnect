@@ -5,6 +5,7 @@ const PORT = process.env.PORT || 4001;
 const wss = new WebSocket.Server({ port: PORT });
 
 const clients = new Map(); // id -> ws
+const usernames = new Map(); // id -> username
 const waitingQueue = []; // ids
 const pairs = new Map(); // id -> peerId
 
@@ -70,17 +71,30 @@ function tryPair() {
     const wa = clients.get(a);
     const wb = clients.get(b);
     
-    log(`🔗 PAIRED: User ${a.substring(0, 8)}... ↔ User ${b.substring(0, 8)}...`, 'success');
-    log(`   → User ${a.substring(0, 8)}... (${a}) is INITIATOR`, 'info');
-    log(`   → User ${b.substring(0, 8)}... (${b}) is RECEIVER`, 'info');
+    const usernameA = usernames.get(a) || 'Guest';
+    const usernameB = usernames.get(b) || 'Guest';
+    
+    log(`🔗 PAIRED: ${usernameA} (${a.substring(0, 8)}...) ↔ ${usernameB} (${b.substring(0, 8)}...)`, 'success');
+    log(`   → ${usernameA} (${a.substring(0, 8)}...) is INITIATOR`, 'info');
+    log(`   → ${usernameB} (${b.substring(0, 8)}...) is RECEIVER`, 'info');
     
     if (wa && wa.readyState === WebSocket.OPEN) {
-      wa.send(JSON.stringify({ type: 'matched', peerId: b, initiator: true }));
-      log(`   ✓ Sent 'matched' to ${a.substring(0, 8)}... (initiator)`, 'success');
+      wa.send(JSON.stringify({ 
+        type: 'matched', 
+        peerId: b, 
+        peerUsername: usernameB,
+        initiator: true 
+      }));
+      log(`   ✓ Sent 'matched' to ${usernameA} (initiator)`, 'success');
     }
     if (wb && wb.readyState === WebSocket.OPEN) {
-      wb.send(JSON.stringify({ type: 'matched', peerId: a, initiator: false }));
-      log(`   ✓ Sent 'matched' to ${b.substring(0, 8)}... (receiver)`, 'success');
+      wb.send(JSON.stringify({ 
+        type: 'matched', 
+        peerId: a, 
+        peerUsername: usernameA,
+        initiator: false 
+      }));
+      log(`   ✓ Sent 'matched' to ${usernameB} (receiver)`, 'success');
     }
     
     // Broadcast updated queue count after pairing
@@ -97,6 +111,8 @@ wss.on('connection', (ws) => {
   const id = uuidv4();
   ws._id = id;
   clients.set(id, ws);
+  // Set default username
+  usernames.set(id, 'Guest');
   log(`🟢 NEW CONNECTION: User ${id.substring(0, 8)}... connected`, 'success');
   log(`   Total clients: ${clients.size}`, 'info');
   ws.send(JSON.stringify({ type: 'id', id }));
@@ -106,6 +122,14 @@ wss.on('connection', (ws) => {
     let msg = null;
     try { msg = JSON.parse(raw); } catch (e) { return; }
     const { type } = msg;
+
+    if (type === 'setUsername') {
+      const { username } = msg;
+      if (username && username.trim()) {
+        usernames.set(id, username.trim());
+        log(`📝 User ${id.substring(0, 8)}... set username to: ${username.trim()}`, 'info');
+      }
+    }
 
     if (type === 'ready') {
       // Ensure user is not in pairs
@@ -225,8 +249,10 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    log(`🔴 DISCONNECT: User ${id.substring(0, 8)}... disconnected`, 'error');
+    const username = usernames.get(id) || 'Guest';
+    log(`🔴 DISCONNECT: ${username} (${id.substring(0, 8)}...) disconnected`, 'error');
     clients.delete(id);
+    usernames.delete(id);
     log(`   Total clients: ${clients.size}`, 'info');
     
     // remove from queue
