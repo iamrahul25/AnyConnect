@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react'
 import HomePage from './components/HomePage'
 import CallPage from './components/CallPage'
 
-const SIGNALING_SERVER = 'ws://localhost:4001'
+// Get signaling server URL from environment variable
+const SIGNALING_SERVER = import.meta.env.SIGNALING_SERVER_URL || 'ws://localhost:4001'
 
 // List of random meaningful names
 const RANDOM_NAMES = [
