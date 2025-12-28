@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import './CallPage.css'
+import { Video, VideoOff, Mic, MicOff, MessageSquare, Phone, SkipForward, Send, Smile } from 'lucide-react'
 
 // ChatMessages component with auto-scroll
 function ChatMessages({ messages }) {
@@ -9,16 +9,44 @@ function ChatMessages({ messages }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  const formatTime = (timestamp) => {
+    if (!timestamp) return ''
+    const date = new Date(timestamp)
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+  }
+
   return (
-    <div className="chat-messages" id="chat-messages">
-      {messages.map((m, i) => (
-        <div key={i} className={`chat-message ${m.from}`}>
-          <span className="message-sender">
-            {m.senderName || (m.from === 'you' ? 'You' : m.from === 'partner' ? 'Partner' : 'System')}
-          </span>
-          <span className="message-text">{m.text}</span>
-        </div>
-      ))}
+    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+      {messages.map((m, i) => {
+        if (m.from === 'system') {
+          return (
+            <div key={i} className="flex justify-center">
+              <div className="bg-gray-700 text-gray-300 text-xs px-3 py-1 rounded-full italic">
+                {m.text}
+              </div>
+            </div>
+          )
+        }
+        const isMe = m.from === 'you'
+        return (
+          <div key={i} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+            <div
+              className={`max-w-[70%] rounded-lg p-3 ${
+                isMe
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-700 text-gray-100'
+              }`}
+            >
+              <p className="break-words">{m.text}</p>
+              <p className={`text-xs mt-1 ${
+                isMe ? 'text-blue-200' : 'text-gray-400'
+              }`}>
+                {formatTime(m.timestamp)}
+              </p>
+            </div>
+          </div>
+        )
+      })}
       <div ref={messagesEndRef} />
     </div>
   )
@@ -38,6 +66,8 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
   const [isConnecting, setIsConnecting] = useState(true)
   const [videoEnabled, setVideoEnabled] = useState(true)
   const [audioEnabled, setAudioEnabled] = useState(true)
+  const [showChat, setShowChat] = useState(true)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
 
   const localVideoRef = useRef(null)
   const remoteVideoRef = useRef(null)
@@ -47,6 +77,9 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
   const wsRef = useRef(ws)
   const pendingCandidatesRef = useRef([])
   const isProcessingNextRef = useRef(false)
+  const peerUsernameRef = useRef(null)
+
+  const emojis = ['😊', '😂', '❤️', '👍', '👋', '🎉', '😎', '🔥', '✨', '💯', '😍', '🤔', '😢', '😮', '👏', '🙌']
 
   useEffect(() => {
     wsRef.current = ws
@@ -76,10 +109,12 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
         }
         setMatched(true)
         setPeerId(msg.peerId)
-        setPeerUsername(msg.peerUsername || 'Guest')
+        const peerName = msg.peerUsername || 'Guest'
+        setPeerUsername(peerName)
+        peerUsernameRef.current = peerName
         setInitiator(!!msg.initiator)
         setIsConnecting(false)
-        appendSystem(`${msg.peerUsername || 'Guest'} (${msg.peerId.substring(0, 8)}...) connected`)
+        appendSystem(`${peerName} (${msg.peerId.substring(0, 8)}...) connected`)
         startCall(msg.initiator, msg.peerId)
       }
       
@@ -186,9 +221,10 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
         }
       }
 
-      // Setup data channel for chat
+      // Setup data channel for chat - IMPORTANT: Set up handler BEFORE creating/processing offer
       if (isInitiator) {
-        const dc = pc.createDataChannel('chat')
+        // Initiator creates the data channel
+        const dc = pc.createDataChannel('chat', { ordered: true })
         setupDataChannel(dc)
         dataChannelRef.current = dc
 
@@ -200,7 +236,10 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
           data: { type: 'offer', sdp: offer } 
         })
       } else {
+        // Non-initiator sets up handler to receive data channel
+        // This MUST be set up before processing the offer
         pc.ondatachannel = (e) => {
+          console.log('Data channel received:', e.channel.label)
           dataChannelRef.current = e.channel
           setupDataChannel(e.channel)
         }
@@ -213,13 +252,26 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
   }
 
   function setupDataChannel(dc) {
+    if (!dc) return
+    
     dc.onopen = () => {
+      console.log('Data channel opened, readyState:', dc.readyState)
       appendSystem('Chat connected')
     }
+    
     dc.onmessage = (e) => {
-      appendMessage('partner', e.data, peerUsername || 'Partner')
+      console.log('Received message:', e.data)
+      const senderName = peerUsernameRef.current || 'Partner'
+      appendMessage('partner', e.data, senderName)
     }
+    
+    dc.onerror = (e) => {
+      console.error('Data channel error:', e)
+      appendSystem('Chat error occurred')
+    }
+    
     dc.onclose = () => {
+      console.log('Data channel closed')
       appendSystem('Chat disconnected')
     }
   }
@@ -247,6 +299,16 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
 
     try {
       if (data.type === 'offer') {
+        // Ensure data channel handler is set up before processing offer
+        // This is critical - if the handler isn't set, we'll miss the data channel
+        if (!pc.ondatachannel) {
+          pc.ondatachannel = (e) => {
+            console.log('Data channel received in handleSignal:', e.channel.label)
+            dataChannelRef.current = e.channel
+            setupDataChannel(e.channel)
+          }
+        }
+        
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
         // Apply any pending candidates after setting remote description
         await applyPendingCandidates()
@@ -318,6 +380,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     setMatched(false)
     setPeerId(null)
     setPeerUsername(null)
+    peerUsernameRef.current = null
     setInitiator(false)
   }
 
@@ -353,8 +416,16 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
 
   function sendChat(text) {
     if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
-      dataChannelRef.current.send(text)
-      appendMessage('you', text, userName || 'You')
+      try {
+        dataChannelRef.current.send(text)
+        appendMessage('you', text, userName || 'You')
+      } catch (err) {
+        console.error('Error sending chat message:', err)
+        appendSystem('Failed to send message')
+      }
+    } else {
+      console.warn('Data channel not ready. State:', dataChannelRef.current?.readyState)
+      appendSystem('Chat not connected yet')
     }
   }
 
@@ -384,97 +455,178 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     onEndCall()
   }
 
+  const isConnected = matched && !isConnecting
+
   return (
-    <div className="call-page">
-      <div className="call-header">
-        <div className="header-left">
-          <h2>AnyConnect</h2>
-          <div className="debug-info">
-            <span className="debug-label">{userName || 'You'}:</span>
-            <span className="debug-uuid">{userId ? userId.substring(0, 8) + '...' : 'Connecting...'}</span>
-            {peerId && peerUsername && (
-              <>
-                <span className="debug-separator">|</span>
-                <span className="debug-label">{peerUsername}:</span>
-                <span className="debug-uuid">{peerId.substring(0, 8) + '...'}</span>
-              </>
+    <div className="w-full h-screen bg-gray-900 flex flex-col">
+      {/* Main Content Area */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Video Section */}
+        <div className="flex-1 relative bg-black">
+          {/* Other Person's Video (Main) */}
+          <div className="w-full h-full relative">
+            <div className="w-full h-full bg-gray-800 flex items-center justify-center">
+              {isConnected ? (
+                <>
+                  <video 
+                    ref={remoteVideoRef} 
+                    autoPlay 
+                    playsInline 
+                    className="w-full h-full object-cover"
+                  />
+                  {!remoteVideoRef.current?.srcObject && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="text-center">
+                        <div className="w-12 h-12 border-4 border-gray-600 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+                        <p className="text-gray-400">Waiting for partner...</p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-center">
+                  <div className="w-12 h-12 border-4 border-gray-600 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+                  <p className="text-gray-400 text-xl mb-2">Connecting to someone...</p>
+                  <p className="text-gray-500">Please wait...</p>
+                </div>
+              )}
+            </div>
+
+            {/* Your Video (Picture-in-Picture) */}
+            <div className="absolute bottom-4 right-4 w-64 h-48 bg-gray-700 rounded-lg overflow-hidden border-2 border-gray-600 shadow-lg">
+              <div className="w-full h-full flex items-center justify-center relative">
+                {videoEnabled ? (
+                  <video 
+                    ref={localVideoRef} 
+                    autoPlay 
+                    muted 
+                    playsInline 
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="text-center">
+                    <VideoOff className="w-12 h-12 text-gray-500 mx-auto mb-2" />
+                    <p className="text-gray-400 text-sm">Video Off</p>
+                  </div>
+                )}
+              </div>
+              <div className="absolute bottom-2 left-2 bg-black bg-opacity-70 text-white px-2 py-1 rounded text-xs">
+                {userName || 'You'}
+              </div>
+            </div>
+
+            {/* Connection Status */}
+            {isConnected && (
+              <div className="absolute top-4 left-4 bg-green-500 text-white px-3 py-1 rounded-full text-sm flex items-center gap-2">
+                <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>
+                Connected
+              </div>
+            )}
+
+            {/* Remote Video Label */}
+            {peerUsername && (
+              <div className="absolute bottom-4 left-4 bg-black bg-opacity-70 text-white px-3 py-1 rounded-full text-sm">
+                {peerUsername}
+              </div>
             )}
           </div>
         </div>
-        <button className="end-call-button" onClick={handleEndCall}>
-          End Call
-        </button>
-      </div>
 
-      <div className="video-container">
-        <div className="video-wrapper remote-video">
-          <video 
-            ref={remoteVideoRef} 
-            autoPlay 
-            playsInline 
-            className="video remote"
-          />
-          {isConnecting && !matched && (
-            <div className="connecting-overlay">
-              <div className="spinner"></div>
-              <p>Connecting to someone...</p>
+        {/* Chat Section */}
+        {showChat && (
+          <div className="w-96 bg-gray-800 flex flex-col border-l border-gray-700">
+            {/* Chat Header */}
+            <div className="p-4 bg-gray-900 border-b border-gray-700">
+              <h2 className="text-white flex items-center gap-2">
+                <MessageSquare className="w-5 h-5" />
+                Chat
+              </h2>
             </div>
-          )}
-          {matched && !remoteVideoRef.current?.srcObject && (
-            <div className="connecting-overlay">
-              <div className="spinner"></div>
-              <p>Waiting for partner...</p>
-            </div>
-          )}
-          <div className="video-label">{peerUsername || 'Partner'}</div>
-        </div>
 
-        <div className="video-wrapper local-video">
-          <video 
-            ref={localVideoRef} 
-            autoPlay 
-            muted 
-            playsInline 
-            className="video local"
-          />
-          <div className="video-label">{userName || 'You'}</div>
-        </div>
+            {/* Messages Area */}
+            <ChatMessages messages={messages} />
+
+            {/* Message Input */}
+            <ChatInput 
+              onSend={sendChat} 
+              disabled={!matched}
+              showEmojiPicker={showEmojiPicker}
+              setShowEmojiPicker={setShowEmojiPicker}
+              emojis={emojis}
+            />
+          </div>
+        )}
       </div>
 
-      <div className="call-controls">
-        <button 
-          className={`control-button ${!videoEnabled ? 'disabled' : ''}`}
-          onClick={toggleVideo}
-          title={videoEnabled ? 'Turn off camera' : 'Turn on camera'}
-        >
-          {videoEnabled ? '📹' : '📹🚫'}
-        </button>
-        <button 
-          className={`control-button ${!audioEnabled ? 'disabled' : ''}`}
-          onClick={toggleAudio}
-          title={audioEnabled ? 'Mute microphone' : 'Unmute microphone'}
-        >
-          {audioEnabled ? '🎤' : '🎤🚫'}
-        </button>
-        <button 
-          className="control-button next-button"
-          onClick={handleNext}
-          disabled={isConnecting}
-        >
-          Next ⏭️
-        </button>
-      </div>
+      {/* Control Bar */}
+      <div className="bg-gray-900 border-t border-gray-700 p-4">
+        <div className="flex items-center justify-center gap-3">
+          {/* Mute/Unmute */}
+          <button
+            onClick={toggleAudio}
+            className={`p-4 rounded-full transition-all ${
+              !audioEnabled ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600'
+            }`}
+            title={audioEnabled ? 'Mute' : 'Unmute'}
+          >
+            {audioEnabled ? (
+              <Mic className="w-6 h-6 text-white" />
+            ) : (
+              <MicOff className="w-6 h-6 text-white" />
+            )}
+          </button>
 
-      <div className="chat-container">
-        <div className="chat-header">Chat</div>
-        <ChatMessages messages={messages} />
-        <ChatInput onSend={sendChat} disabled={!matched} />
+          {/* Video On/Off */}
+          <button
+            onClick={toggleVideo}
+            className={`p-4 rounded-full transition-all ${
+              !videoEnabled ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600'
+            }`}
+            title={videoEnabled ? 'Turn off video' : 'Turn on video'}
+          >
+            {videoEnabled ? (
+              <Video className="w-6 h-6 text-white" />
+            ) : (
+              <VideoOff className="w-6 h-6 text-white" />
+            )}
+          </button>
+
+          {/* Toggle Chat */}
+          <button
+            onClick={() => setShowChat(!showChat)}
+            className="p-4 bg-gray-700 hover:bg-gray-600 rounded-full transition-all"
+            title="Toggle chat"
+          >
+            <MessageSquare className="w-6 h-6 text-white" />
+          </button>
+
+          {/* Next */}
+          <button
+            onClick={handleNext}
+            disabled={isConnecting}
+            className="px-6 py-4 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-full transition-all flex items-center gap-2"
+            title="Next person"
+          >
+            <SkipForward className="w-6 h-6 text-white" />
+            <span className="text-white">Next</span>
+          </button>
+
+          {/* End Call */}
+          <button
+            onClick={handleEndCall}
+            className="px-6 py-4 bg-red-600 hover:bg-red-700 rounded-full transition-all flex items-center gap-2"
+            title="End call"
+          >
+            <Phone className="w-6 h-6 text-white rotate-[135deg]" />
+            <span className="text-white">End Call</span>
+          </button>
+        </div>
       </div>
     </div>
   )
 }
 
-function ChatInput({ onSend, disabled }) {
+function ChatInput({ onSend, disabled, showEmojiPicker, setShowEmojiPicker, emojis }) {
   const [value, setValue] = useState('')
 
   function submit(e) {
@@ -482,22 +634,72 @@ function ChatInput({ onSend, disabled }) {
     if (!value.trim() || disabled) return
     onSend(value.trim())
     setValue('')
+    setShowEmojiPicker(false)
+  }
+
+  function handleKeyPress(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      submit(e)
+    }
+  }
+
+  function handleEmojiClick(emoji) {
+    setValue(value + emoji)
+    setShowEmojiPicker(false)
   }
 
   return (
-    <form className="chat-input-form" onSubmit={submit}>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder={disabled ? "Waiting for connection..." : "Type a message..."}
-        disabled={disabled}
-        className="chat-input"
-      />
-      <button type="submit" disabled={disabled || !value.trim()} className="chat-send-button">
-        Send
-      </button>
-    </form>
+    <>
+      {/* Emoji Picker */}
+      {showEmojiPicker && (
+        <div className="p-3 bg-gray-800 border-t border-gray-700">
+          <div className="grid grid-cols-8 gap-2">
+            {emojis.map((emoji, index) => (
+              <button
+                key={index}
+                onClick={() => handleEmojiClick(emoji)}
+                className="text-2xl hover:bg-gray-600 rounded p-1 transition-colors"
+                type="button"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Message Input */}
+      <div className="p-4 bg-gray-900 border-t border-gray-700">
+        <div className="flex items-end gap-2">
+          <button
+            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+            className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+            type="button"
+          >
+            <Smile className="w-5 h-5 text-gray-400" />
+          </button>
+          <div className="flex-1">
+            <textarea
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder={disabled ? "Waiting for connection..." : "Type a message..."}
+              disabled={disabled}
+              className="w-full bg-gray-700 text-white rounded-lg px-3 py-2 resize-none outline-none focus:ring-2 focus:ring-blue-500"
+              rows="1"
+            />
+          </div>
+          <button
+            onClick={submit}
+            disabled={disabled || !value.trim()}
+            className="p-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors"
+            type="button"
+          >
+            <Send className="w-5 h-5 text-white" />
+          </button>
+        </div>
+      </div>
+    </>
   )
 }
-
