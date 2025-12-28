@@ -8,9 +8,10 @@ const PORT = process.env.PORT || 4001;
 
 // Get allowed origins from environment variable (comma-separated)
 // Supports both development and production URLs
-const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
-  : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://127.0.0.1:3000'];
+if (!process.env.ALLOWED_ORIGINS) {
+  throw new Error('ALLOWED_ORIGINS environment variable is required. Please set it in your .env file.');
+}
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim());
 
 // Helper function for colored console logs
 function log(message, type = 'info') {

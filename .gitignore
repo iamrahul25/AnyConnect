@@ -4,3 +4,9 @@ server/node_modules/
 
 # (Optional) Ignore all node_modules anywhere
 node_modules/
+
+# Ignore environment variables
+.env
+.env.local
+.env.*.local
+server/.env
