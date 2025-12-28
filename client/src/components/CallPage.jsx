@@ -16,12 +16,12 @@ function ChatMessages({ messages }) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-3 space-y-2">
+    <div className="flex-1 overflow-y-auto p-2 md:p-3 space-y-1.5 md:space-y-2">
       {messages.map((m, i) => {
         if (m.from === 'system') {
           return (
             <div key={i} className="flex justify-center">
-              <div className="bg-gray-700 text-gray-300 text-[9px] px-2 py-0.5 rounded-full italic">
+              <div className="bg-gray-700 text-gray-300 text-[8px] md:text-[9px] px-2 py-0.5 rounded-full italic">
                 {m.text}
               </div>
             </div>
@@ -31,14 +31,14 @@ function ChatMessages({ messages }) {
         return (
           <div key={i} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
             <div
-              className={`max-w-[70%] rounded-lg p-2 ${
+              className={`max-w-[75%] md:max-w-[70%] rounded-lg p-1.5 md:p-2 ${
                 isMe
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-700 text-gray-100'
               }`}
             >
-              <p className="break-words">{m.text}</p>
-              <p className={`text-[9px] mt-0.5 ${
+              <p className="break-words text-sm md:text-base">{m.text}</p>
+              <p className={`text-[8px] md:text-[9px] mt-0.5 ${
                 isMe ? 'text-blue-200' : 'text-gray-400'
               }`}>
                 {formatTime(m.timestamp)}
@@ -458,11 +458,11 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
   const isConnected = matched && !isConnecting
 
   return (
-    <div className="w-full h-screen bg-gray-900 flex flex-col">
+    <div className="w-full h-screen bg-gray-900 flex flex-col overflow-hidden">
       {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {/* Video Section */}
-        <div className="flex-1 relative bg-black">
+        <div className="flex-1 relative bg-black min-h-0">
           {/* Other Person's Video (Main) */}
           <div className="w-full h-full relative">
             <div className="w-full h-full bg-gray-800 flex items-center justify-center">
@@ -493,7 +493,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
             </div>
 
             {/* Your Video (Picture-in-Picture) */}
-            <div className="absolute bottom-3 right-3 w-48 h-36 bg-gray-700 rounded-lg overflow-hidden border-[1.5px] border-gray-600 shadow-lg">
+            <div className="absolute bottom-2 right-2 md:bottom-3 md:right-3 w-32 h-24 md:w-48 md:h-36 bg-gray-700 rounded-lg overflow-hidden border-[1.5px] border-gray-600 shadow-lg">
               <div className="w-full h-full flex items-center justify-center relative">
                 {videoEnabled ? (
                   <video 
@@ -505,27 +505,27 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
                   />
                 ) : (
                   <div className="text-center">
-                    <VideoOff className="w-9 h-9 text-gray-500 mx-auto mb-1.5" />
-                    <p className="text-gray-400 text-xs">Video Off</p>
+                    <VideoOff className="w-6 h-6 md:w-9 md:h-9 text-gray-500 mx-auto mb-1 md:mb-1.5" />
+                    <p className="text-gray-400 text-[10px] md:text-xs">Video Off</p>
                   </div>
                 )}
               </div>
-              <div className="absolute bottom-1.5 left-1.5 bg-black bg-opacity-70 text-white px-1.5 py-0.5 rounded text-[9px]">
+              <div className="absolute bottom-1 left-1 md:bottom-1.5 md:left-1.5 bg-black bg-opacity-70 text-white px-1 md:px-1.5 py-0.5 rounded text-[8px] md:text-[9px]">
                 {userName || 'You'}
               </div>
             </div>
 
             {/* Connection Status */}
             {isConnected && (
-              <div className="absolute top-3 left-3 bg-green-500 text-white px-2 py-0.5 rounded-full text-xs flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span>
+              <div className="absolute top-2 left-2 md:top-3 md:left-3 bg-green-500 text-white px-2 py-0.5 rounded-full text-[10px] md:text-xs flex items-center gap-1 md:gap-1.5">
+                <span className="w-1 h-1 md:w-1.5 md:h-1.5 bg-white rounded-full animate-pulse"></span>
                 Connected
               </div>
             )}
 
             {/* Remote Video Label */}
             {peerUsername && (
-              <div className="absolute bottom-3 left-3 bg-black bg-opacity-70 text-white px-2 py-0.5 rounded-full text-xs">
+              <div className="absolute bottom-2 left-2 md:bottom-3 md:left-3 bg-black bg-opacity-70 text-white px-2 py-0.5 rounded-full text-[10px] md:text-xs">
                 {peerUsername}
               </div>
             )}
@@ -534,11 +534,11 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
 
         {/* Chat Section */}
         {showChat && (
-          <div className="w-72 bg-gray-800 flex flex-col border-l border-gray-700">
+          <div className="w-full md:w-72 h-64 md:h-auto bg-gray-800 flex flex-col border-t md:border-t-0 md:border-l border-gray-700">
             {/* Chat Header */}
-            <div className="p-3 bg-gray-900 border-b border-gray-700">
-              <h2 className="text-white flex items-center gap-1.5">
-                <MessageSquare className="w-4 h-4" />
+            <div className="p-2 md:p-3 bg-gray-900 border-b border-gray-700 flex-shrink-0">
+              <h2 className="text-white flex items-center gap-1.5 text-sm md:text-base">
+                <MessageSquare className="w-3.5 h-3.5 md:w-4 md:h-4" />
                 Chat
               </h2>
             </div>
@@ -559,66 +559,66 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
       </div>
 
       {/* Control Bar */}
-      <div className="bg-gray-900 border-t border-gray-700 p-3">
-        <div className="flex items-center justify-center gap-2">
+      <div className="bg-gray-900 border-t border-gray-700 p-2 md:p-3 flex-shrink-0">
+        <div className="flex items-center justify-center gap-1.5 md:gap-2">
           {/* Mute/Unmute */}
           <button
             onClick={toggleAudio}
-            className={`p-3 rounded-full transition-all ${
+            className={`p-2 md:p-3 rounded-full transition-all ${
               !audioEnabled ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600'
             }`}
             title={audioEnabled ? 'Mute' : 'Unmute'}
           >
             {audioEnabled ? (
-              <Mic className="w-[18px] h-[18px] text-white" />
+              <Mic className="w-4 h-4 md:w-[18px] md:h-[18px] text-white" />
             ) : (
-              <MicOff className="w-[18px] h-[18px] text-white" />
+              <MicOff className="w-4 h-4 md:w-[18px] md:h-[18px] text-white" />
             )}
           </button>
 
           {/* Video On/Off */}
           <button
             onClick={toggleVideo}
-            className={`p-3 rounded-full transition-all ${
+            className={`p-2 md:p-3 rounded-full transition-all ${
               !videoEnabled ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600'
             }`}
             title={videoEnabled ? 'Turn off video' : 'Turn on video'}
           >
             {videoEnabled ? (
-              <Video className="w-[18px] h-[18px] text-white" />
+              <Video className="w-4 h-4 md:w-[18px] md:h-[18px] text-white" />
             ) : (
-              <VideoOff className="w-[18px] h-[18px] text-white" />
+              <VideoOff className="w-4 h-4 md:w-[18px] md:h-[18px] text-white" />
             )}
           </button>
 
           {/* Toggle Chat */}
           <button
             onClick={() => setShowChat(!showChat)}
-            className="p-3 bg-gray-700 hover:bg-gray-600 rounded-full transition-all"
+            className="p-2 md:p-3 bg-gray-700 hover:bg-gray-600 rounded-full transition-all"
             title="Toggle chat"
           >
-            <MessageSquare className="w-[18px] h-[18px] text-white" />
+            <MessageSquare className="w-4 h-4 md:w-[18px] md:h-[18px] text-white" />
           </button>
 
           {/* Next */}
           <button
             onClick={handleNext}
             disabled={isConnecting}
-            className="px-[18px] py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-full transition-all flex items-center gap-1.5"
+            className="px-3 py-2 md:px-[18px] md:py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-full transition-all flex items-center gap-1 md:gap-1.5"
             title="Next person"
           >
-            <SkipForward className="w-[18px] h-[18px] text-white" />
-            <span className="text-white">Next</span>
+            <SkipForward className="w-4 h-4 md:w-[18px] md:h-[18px] text-white" />
+            <span className="text-white text-xs md:text-base">Next</span>
           </button>
 
           {/* End Call */}
           <button
             onClick={handleEndCall}
-            className="px-[18px] py-3 bg-red-600 hover:bg-red-700 rounded-full transition-all flex items-center gap-1.5"
+            className="px-3 py-2 md:px-[18px] md:py-3 bg-red-600 hover:bg-red-700 rounded-full transition-all flex items-center gap-1 md:gap-1.5"
             title="End call"
           >
-            <Phone className="w-[18px] h-[18px] text-white rotate-[135deg]" />
-            <span className="text-white">End Call</span>
+            <Phone className="w-4 h-4 md:w-[18px] md:h-[18px] text-white rotate-[135deg]" />
+            <span className="text-white text-xs md:text-base">End Call</span>
           </button>
         </div>
       </div>
@@ -653,13 +653,13 @@ function ChatInput({ onSend, disabled, showEmojiPicker, setShowEmojiPicker, emoj
     <>
       {/* Emoji Picker */}
       {showEmojiPicker && (
-        <div className="p-2 bg-gray-800 border-t border-gray-700">
-          <div className="grid grid-cols-8 gap-1.5">
+        <div className="p-1.5 md:p-2 bg-gray-800 border-t border-gray-700">
+          <div className="grid grid-cols-8 gap-1 md:gap-1.5">
             {emojis.map((emoji, index) => (
               <button
                 key={index}
                 onClick={() => handleEmojiClick(emoji)}
-                className="text-xl hover:bg-gray-600 rounded p-0.5 transition-colors"
+                className="text-lg md:text-xl hover:bg-gray-600 rounded p-0.5 transition-colors"
                 type="button"
               >
                 {emoji}
@@ -670,33 +670,33 @@ function ChatInput({ onSend, disabled, showEmojiPicker, setShowEmojiPicker, emoj
       )}
 
       {/* Message Input */}
-      <div className="p-3 bg-gray-900 border-t border-gray-700">
-        <div className="flex items-end gap-1.5">
+      <div className="p-2 md:p-3 bg-gray-900 border-t border-gray-700 flex-shrink-0">
+        <div className="flex items-end gap-1 md:gap-1.5">
           <button
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className="p-1.5 hover:bg-gray-700 rounded-lg transition-colors"
+            className="p-1 md:p-1.5 hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
             type="button"
           >
-            <Smile className="w-4 h-4 text-gray-400" />
+            <Smile className="w-3.5 h-3.5 md:w-4 md:h-4 text-gray-400" />
           </button>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <textarea
               value={value}
               onChange={(e) => setValue(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder={disabled ? "Waiting for connection..." : "Type a message..."}
               disabled={disabled}
-              className="w-full bg-gray-700 text-white rounded-lg px-2 py-1.5 resize-none outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-gray-700 text-white rounded-lg px-2 py-1 md:py-1.5 resize-none outline-none focus:ring-2 focus:ring-blue-500 text-sm md:text-base"
               rows="1"
             />
           </div>
           <button
             onClick={submit}
             disabled={disabled || !value.trim()}
-            className="p-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors"
+            className="p-1 md:p-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors flex-shrink-0"
             type="button"
           >
-            <Send className="w-4 h-4 text-white" />
+            <Send className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />
           </button>
         </div>
       </div>
