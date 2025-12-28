@@ -3,7 +3,8 @@ import HomePage from './components/HomePage'
 import CallPage from './components/CallPage'
 
 // Get signaling server URL from environment variable
-const SIGNALING_SERVER = import.meta.env.SIGNALING_SERVER_URL || 'ws://localhost:4001'
+// Vite requires VITE_ prefix for environment variables
+const SIGNALING_SERVER = import.meta.env.VITE_SIGNALING_SERVER_URL || 'ws://localhost:4001'
 
 // List of random meaningful names
 const RANDOM_NAMES = [

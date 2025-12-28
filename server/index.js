@@ -1,13 +1,16 @@
+// Load environment variables from .env file
+require('dotenv').config();
+
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
 
 const PORT = process.env.PORT || 4001;
-const wss = new WebSocket.Server({ port: PORT });
 
-const clients = new Map(); // id -> ws
-const usernames = new Map(); // id -> username
-const waitingQueue = []; // ids
-const pairs = new Map(); // id -> peerId
+// Get allowed origins from environment variable (comma-separated)
+// Supports both development and production URLs
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS 
+  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+  : ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://127.0.0.1:3000'];
 
 // Helper function for colored console logs
 function log(message, type = 'info') {
@@ -21,6 +24,45 @@ function log(message, type = 'info') {
   const timestamp = new Date().toISOString();
   console.log(`${colors[type]}[${timestamp}] ${message}${colors.reset}`);
 }
+
+// Origin verification function for CORS
+function verifyOrigin(origin) {
+  if (!origin) {
+    // Allow connections without origin (e.g., Postman, curl)
+    // In production, you might want to return false here
+    return true;
+  }
+  
+  // Check if origin is in allowed list
+  const isAllowed = ALLOWED_ORIGINS.some(allowedOrigin => {
+    // Support wildcard subdomains (e.g., *.vercel.app)
+    if (allowedOrigin.includes('*')) {
+      const pattern = allowedOrigin.replace(/\*/g, '.*');
+      const regex = new RegExp(`^${pattern}$`);
+      return regex.test(origin);
+    }
+    return origin === allowedOrigin;
+  });
+  
+  return isAllowed;
+}
+
+const wss = new WebSocket.Server({ 
+  port: PORT,
+  verifyClient: (info) => {
+    const origin = info.origin;
+    const allowed = verifyOrigin(origin);
+    if (!allowed) {
+      log(`🚫 Connection rejected from origin: ${origin}`, 'warning');
+    }
+    return allowed;
+  }
+});
+
+const clients = new Map(); // id -> ws
+const usernames = new Map(); // id -> username
+const waitingQueue = []; // ids
+const pairs = new Map(); // id -> peerId
 
 function broadcastOnlineCount() {
   const count = clients.size;
@@ -286,4 +328,5 @@ wss.on('connection', (ws) => {
 });
 
 log(`🚀 Signaling server running on ws://0.0.0.0:${PORT}`, 'success');
+log(`🌐 Allowed origins: ${ALLOWED_ORIGINS.join(', ')}`, 'info');
 
