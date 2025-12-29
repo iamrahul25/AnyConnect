@@ -146,6 +146,9 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
         setIsConnecting(true)
         setPeerAudioMuted(false)
         setPeerVideoEnabled(true)
+        // Reset local audio and video to enabled (unmuted and video on)
+        setAudioEnabled(true)
+        setVideoEnabled(true)
         
         // Clean up the peer connection
         cleanupPeer()
@@ -214,6 +217,17 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
         audio: true 
       })
       localStreamRef.current = stream
+      
+      // Ensure tracks are enabled based on current state
+      const videoTrack = stream.getVideoTracks()[0]
+      const audioTrack = stream.getAudioTracks()[0]
+      if (videoTrack) {
+        videoTrack.enabled = videoEnabled
+      }
+      if (audioTrack) {
+        audioTrack.enabled = audioEnabled
+      }
+      
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream
       }
@@ -516,6 +530,22 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     setInitiator(false)
     setIsConnecting(true)
     setPeerAudioMuted(false)
+    setPeerVideoEnabled(true)
+    // Reset local audio and video to enabled (unmuted and video on)
+    setAudioEnabled(true)
+    setVideoEnabled(true)
+    
+    // Update media tracks immediately if stream exists
+    if (localStreamRef.current) {
+      const videoTrack = localStreamRef.current.getVideoTracks()[0]
+      const audioTrack = localStreamRef.current.getAudioTracks()[0]
+      if (videoTrack) {
+        videoTrack.enabled = true
+      }
+      if (audioTrack) {
+        audioTrack.enabled = true
+      }
+    }
     
     // Clean up current connection first
     cleanupPeer()
