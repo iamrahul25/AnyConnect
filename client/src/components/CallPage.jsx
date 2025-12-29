@@ -114,7 +114,8 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
         peerUsernameRef.current = peerName
         setInitiator(!!msg.initiator)
         setIsConnecting(false)
-        appendSystem(`${peerName} (${msg.peerId.substring(0, 8)}...) connected`)
+        // Show candidate found message with user name and id
+        appendSystem(`${peerName} (${msg.peerId.substring(0, 8)}...) - Candidate found`)
         startCall(msg.initiator, msg.peerId)
       }
       
@@ -124,7 +125,9 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
       
       if (msg.type === 'partner_left') {
         const peerName = peerUsername || 'Partner'
-        appendSystem(`${peerName} disconnected`)
+        const peerIdForMessage = peerId ? `${peerId.substring(0, 8)}...` : 'unknown'
+        appendSystem(`${peerName} (${peerIdForMessage}) got disconnected.`)
+        appendSystem('Clean-up and find new user present in waiting queue...')
         // Only call handleNext if not already processing
         if (!isProcessingNextRef.current) {
           handleNext()
@@ -200,25 +203,49 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = e.streams[0]
         }
-        appendSystem('Video connected!')
+        appendSystem('Video track received')
       }
 
       // Handle ICE candidates
+      let candidateCount = 0
       pc.onicecandidate = (e) => {
         if (e.candidate) {
+          candidateCount++
           sendWs({ 
             type: 'signal', 
             to: remotePeerId, 
             data: { type: 'candidate', candidate: e.candidate } 
           })
+          if (candidateCount === 1) {
+            appendSystem('ICE candidate gathering started...')
+          }
+        } else {
+          // No more candidates
+          appendSystem(`ICE candidate gathering completed (${candidateCount} candidates found)`)
         }
       }
 
       pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === 'disconnected' || 
-            pc.iceConnectionState === 'failed') {
-          appendSystem('Connection lost')
+        const state = pc.iceConnectionState
+        appendSystem(`WebRTC ICE connection state: ${state}`)
+        
+        if (state === 'connected' || state === 'completed') {
+          appendSystem('WebRTC connection established successfully')
+        } else if (state === 'disconnected') {
+          appendSystem('WebRTC connection disconnected')
+        } else if (state === 'failed') {
+          appendSystem('WebRTC connection failed')
+        } else if (state === 'checking') {
+          appendSystem('WebRTC ICE connection checking...')
+        } else if (state === 'new') {
+          appendSystem('WebRTC ICE connection initialized')
         }
+      }
+      
+      // Track connection state changes
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState
+        appendSystem(`WebRTC connection state: ${state}`)
       }
 
       // Setup data channel for chat - IMPORTANT: Set up handler BEFORE creating/processing offer
@@ -256,7 +283,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     
     dc.onopen = () => {
       console.log('Data channel opened, readyState:', dc.readyState)
-      appendSystem('Chat connected')
+      appendSystem('Chat is enabled')
     }
     
     dc.onmessage = (e) => {
@@ -395,11 +422,24 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     isProcessingNextRef.current = true
     setIsConnecting(true)
     
+    // Store peer info before cleanup for disconnect message
+    const previousPeerName = peerUsername || 'Partner'
+    const previousPeerId = peerId
+    
     // Clean up current connection first
     cleanupPeer()
     setMatched(false)
     setPeerUsername(null)
-    setMessages([])
+    // Don't reset messages - keep chat history persistent
+    // setMessages([]) - REMOVED to persist chat
+    
+    // Show disconnect message with user details
+    if (previousPeerId) {
+      appendSystem(`${previousPeerName} (${previousPeerId.substring(0, 8)}...) got disconnected.`)
+    }
+    
+    // Show message about finding new user
+    appendSystem('Clean-up completed. Finding new user present in waiting queue...')
     
     // Send next request to server
     sendWs({ type: 'next' })
@@ -522,6 +562,12 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
                 Connected
               </div>
             )}
+
+            {/* Current User Info */}
+            <div className="absolute top-2 right-2 md:top-3 md:right-3 bg-black bg-opacity-70 text-white px-2 py-1 rounded-lg text-[10px] md:text-xs">
+              <div className="font-semibold">{userName || 'You'}</div>
+              <div className="text-gray-300 opacity-75">({userId ? userId.substring(0, 8) + '...' : 'unknown'})</div>
+            </div>
 
             {/* Remote Video Label */}
             {peerUsername && (
