@@ -78,13 +78,15 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
   const pendingCandidatesRef = useRef([])
   const isProcessingNextRef = useRef(false)
   const peerUsernameRef = useRef(null)
+  const isMatchedRef = useRef(false)
+  const pendingSignalsRef = useRef([]) // Queue for signals that arrive before peer connection is ready
 
   const emojis = ['😊', '😂', '❤️', '👍', '👋', '🎉', '😎', '🔥', '✨', '💯', '😍', '🤔', '😢', '😮', '👏', '🙌']
 
   useEffect(() => {
     wsRef.current = ws
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      // Request to be matched
+    if (ws && ws.readyState === WebSocket.OPEN && !isMatchedRef.current) {
+      // Request to be matched (only if not already matched)
       ws.send(JSON.stringify({ type: 'ready' }))
       setIsConnecting(true)
     }
@@ -99,14 +101,17 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
       if (msg.type === 'matched') {
         // Only process match if we're not processing a next request
         if (isProcessingNextRef.current) {
-          // If we're processing next, requeue ourselves
+          // If we're processing next, ignore this match and requeue ourselves
           setTimeout(() => {
-            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !isMatchedRef.current) {
               wsRef.current.send(JSON.stringify({ type: 'ready' }))
             }
           }, 100)
           return
         }
+        
+        // Mark as matched to prevent duplicate ready requests
+        isMatchedRef.current = true
         setMatched(true)
         setPeerId(msg.peerId)
         const peerName = msg.peerUsername || 'Guest'
@@ -128,10 +133,25 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
         const peerIdForMessage = peerId ? `${peerId.substring(0, 8)}...` : 'unknown'
         appendSystem(`${peerName} (${peerIdForMessage}) got disconnected.`)
         appendSystem('Clean-up and find new user present in waiting queue...')
-        // Only call handleNext if not already processing
-        if (!isProcessingNextRef.current) {
-          handleNext()
-        }
+        
+        // Reset state immediately to show "Connecting to someone..."
+        isMatchedRef.current = false
+        setMatched(false)
+        setPeerId(null)
+        setPeerUsername(null)
+        peerUsernameRef.current = null
+        setInitiator(false)
+        setIsConnecting(true)
+        
+        // Clean up the peer connection
+        cleanupPeer()
+        
+        // Requeue ourselves by sending 'ready' (not 'next' since we didn't initiate the disconnect)
+        setTimeout(() => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !isMatchedRef.current) {
+            wsRef.current.send(JSON.stringify({ type: 'ready' }))
+          }
+        }, 500)
       }
     }
 
@@ -179,6 +199,10 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
       localStreamRef.current.getTracks().forEach((track) => track.stop())
       localStreamRef.current = null
     }
+
+    // Clear pending signals and candidates
+    pendingSignalsRef.current = []
+    pendingCandidatesRef.current = []
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -262,6 +286,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
           to: remotePeerId, 
           data: { type: 'offer', sdp: offer } 
         })
+        appendSystem('Offer created and sent')
       } else {
         // Non-initiator sets up handler to receive data channel
         // This MUST be set up before processing the offer
@@ -270,6 +295,14 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
           dataChannelRef.current = e.channel
           setupDataChannel(e.channel)
         }
+        appendSystem('Waiting for offer from peer...')
+      }
+      
+      // Process any pending signals that arrived before peer connection was created
+      while (pendingSignalsRef.current.length > 0) {
+        const pendingSignal = pendingSignalsRef.current.shift()
+        console.log('Processing pending signal:', pendingSignal.data.type)
+        await handleSignal(pendingSignal.from, pendingSignal.data)
       }
     } catch (err) {
       console.error('Error starting call:', err)
@@ -321,8 +354,16 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
   }
 
   async function handleSignal(from, data) {
+    if (!data) return
+    
     const pc = pcRef.current
-    if (!data || !pc) return
+    
+    // If peer connection is not ready yet, queue the signal
+    if (!pc) {
+      console.log('Peer connection not ready, queueing signal:', data.type)
+      pendingSignalsRef.current.push({ from, data })
+      return
+    }
 
     try {
       if (data.type === 'offer') {
@@ -336,6 +377,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
           }
         }
         
+        appendSystem('Received offer from peer')
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
         // Apply any pending candidates after setting remote description
         await applyPendingCandidates()
@@ -346,7 +388,9 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
           to: from, 
           data: { type: 'answer', sdp: answer } 
         })
+        appendSystem('Answer created and sent')
       } else if (data.type === 'answer') {
+        appendSystem('Received answer from peer')
         await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
         // Apply any pending candidates after setting remote description
         await applyPendingCandidates()
@@ -365,6 +409,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
       }
     } catch (err) {
       console.error('Error handling signal:', err)
+      appendSystem(`Error processing signal: ${err.message}`)
     }
   }
 
@@ -401,14 +446,12 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
       remoteVideoRef.current.srcObject = null
     }
     
-    // Clear pending candidates
+    // Clear pending candidates and signals
     pendingCandidatesRef.current = []
+    pendingSignalsRef.current = []
     
-    setMatched(false)
-    setPeerId(null)
-    setPeerUsername(null)
-    peerUsernameRef.current = null
-    setInitiator(false)
+    // Note: State reset is handled by the caller (handleNext or partner_left handler)
+    // to ensure proper UI updates
   }
 
   function handleNext() {
@@ -420,20 +463,26 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
 
     console.log('handleNext: Starting next request')
     isProcessingNextRef.current = true
-    setIsConnecting(true)
     
     // Store peer info before cleanup for disconnect message
     const previousPeerName = peerUsername || 'Partner'
     const previousPeerId = peerId
     
+    // Reset state immediately to show "Connecting to someone..."
+    isMatchedRef.current = false
+    setMatched(false)
+    setPeerId(null)
+    setPeerUsername(null)
+    peerUsernameRef.current = null
+    setInitiator(false)
+    setIsConnecting(true)
+    
     // Clean up current connection first
     cleanupPeer()
-    setMatched(false)
-    setPeerUsername(null)
     // Don't reset messages - keep chat history persistent
     // setMessages([]) - REMOVED to persist chat
     
-    // Show disconnect message with user details
+    // Show disconnect message with user details (only if we had a peer)
     if (previousPeerId) {
       appendSystem(`${previousPeerName} (${previousPeerId.substring(0, 8)}...) got disconnected.`)
     }
@@ -447,7 +496,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     // Request new match after a short delay to ensure cleanup is complete
     setTimeout(() => {
       isProcessingNextRef.current = false
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !isMatchedRef.current) {
         console.log('handleNext: Sending ready request')
         wsRef.current.send(JSON.stringify({ type: 'ready' }))
       }

@@ -100,15 +100,50 @@ function tryPair() {
   log(`🔄 Attempting to pair users... Current queue length: ${waitingQueue.length}`, 'info');
   logWaitingQueue();
   
+  // Filter out users who are already paired or disconnected
+  const validQueue = [];
+  for (let i = 0; i < waitingQueue.length; i++) {
+    const userId = waitingQueue[i];
+    // Check if user is still connected and not already paired
+    if (clients.has(userId) && !pairs.has(userId)) {
+      // Check if user is not already in validQueue (avoid duplicates)
+      if (!validQueue.includes(userId)) {
+        validQueue.push(userId);
+      }
+    }
+  }
+  
+  // Update waitingQueue to only contain valid users
+  waitingQueue.length = 0;
+  waitingQueue.push(...validQueue);
+  
+  log(`   After filtering: ${waitingQueue.length} valid users in queue`, 'info');
+  logWaitingQueue();
+  
   while (waitingQueue.length >= 2) {
     const a = waitingQueue.shift();
     const b = waitingQueue.shift();
+    
+    // Double-check that both users are still valid (not disconnected or already paired)
     if (!clients.has(a) || !clients.has(b)) {
-      if (clients.has(a)) waitingQueue.unshift(a);
-      if (clients.has(b)) waitingQueue.unshift(b);
+      if (clients.has(a) && !pairs.has(a)) waitingQueue.unshift(a);
+      if (clients.has(b) && !pairs.has(b)) waitingQueue.unshift(b);
       log(`⚠️  Skipping pair - one or both users disconnected`, 'warning');
       continue;
     }
+    
+    // Check if either user is already paired (shouldn't happen after filtering, but double-check)
+    if (pairs.has(a) || pairs.has(b)) {
+      log(`⚠️  Skipping pair - one or both users already paired`, 'warning');
+      log(`   User A (${a.substring(0, 8)}...) paired: ${pairs.has(a)}`, 'warning');
+      log(`   User B (${b.substring(0, 8)}...) paired: ${pairs.has(b)}`, 'warning');
+      // Put them back if not paired
+      if (!pairs.has(a)) waitingQueue.unshift(a);
+      if (!pairs.has(b)) waitingQueue.unshift(b);
+      continue;
+    }
+    
+    // Both users are valid and not paired - create the pair
     pairs.set(a, b);
     pairs.set(b, a);
     const wa = clients.get(a);
@@ -175,12 +210,20 @@ wss.on('connection', (ws) => {
     }
 
     if (type === 'ready') {
-      // Ensure user is not in pairs
+      // Ensure user is not in pairs - if they are, clean up first
       if (pairs.has(id)) {
         log(`⚠️  User ${id.substring(0, 8)}... is still paired, removing from pairs first`, 'warning');
         const peer = pairs.get(id);
         pairs.delete(id);
-        if (peer) pairs.delete(peer);
+        if (peer) {
+          pairs.delete(peer);
+          // Notify the peer that they've been unpaired
+          const pws = clients.get(peer);
+          if (pws && pws.readyState === WebSocket.OPEN) {
+            pws.send(JSON.stringify({ type: 'partner_left' }));
+            log(`   📤 Sent 'partner_left' to User ${peer.substring(0, 8)}...`, 'info');
+          }
+        }
       }
       
       // Remove from queue if already there (to avoid duplicates and ensure fresh state)
@@ -191,17 +234,22 @@ wss.on('connection', (ws) => {
         logWaitingQueue();
       }
       
-      // Add to queue if not paired
-      if (!pairs.has(id)) {
+      // Double-check: Add to queue only if not paired and still connected
+      if (!pairs.has(id) && clients.has(id)) {
         waitingQueue.push(id);
         log(`📋 User ${id.substring(0, 8)}... (${id}) added to waiting queue`, 'info');
         log(`   Queue length: ${waitingQueue.length}`, 'info');
         logWaitingQueue();
         broadcastQueueCount();
+        tryPair();
       } else {
-        log(`⚠️  User ${id.substring(0, 8)}... is still paired, cannot add to queue`, 'warning');
+        if (pairs.has(id)) {
+          log(`⚠️  User ${id.substring(0, 8)}... is still paired, cannot add to queue`, 'warning');
+        }
+        if (!clients.has(id)) {
+          log(`⚠️  User ${id.substring(0, 8)}... is not connected, cannot add to queue`, 'warning');
+        }
       }
-      tryPair();
     }
 
     if (type === 'next') {
@@ -224,6 +272,13 @@ wss.on('connection', (ws) => {
         if (pws && pws.readyState === WebSocket.OPEN) {
           pws.send(JSON.stringify({ type: 'partner_left' }));
           log(`   📤 Sent 'partner_left' to User ${peer.substring(0, 8)}...`, 'info');
+          
+          // Also requeue the peer automatically so they can find a new match
+          const peerQueueIdx = waitingQueue.indexOf(peer);
+          if (peerQueueIdx === -1) {
+            waitingQueue.push(peer);
+            log(`   📋 Requeued User ${peer.substring(0, 8)}... (${peer}) automatically`, 'info');
+          }
         }
       }
       
@@ -251,6 +306,12 @@ wss.on('connection', (ws) => {
       const { to, data } = msg;
       const signalType = data?.type || 'unknown';
       log(`📡 SIGNAL: User ${id.substring(0, 8)}... → User ${to.substring(0, 8)}... (${signalType})`, 'info');
+      
+      // Verify that users are actually paired (security check)
+      const expectedPeer = pairs.get(id);
+      if (expectedPeer && expectedPeer !== to) {
+        log(`   ⚠️  WARNING: User ${id.substring(0, 8)}... trying to signal to ${to.substring(0, 8)}... but paired with ${expectedPeer.substring(0, 8)}...`, 'warning');
+      }
       
       const target = clients.get(to);
       if (target && target.readyState === WebSocket.OPEN) {
