@@ -66,6 +66,8 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
   const [isConnecting, setIsConnecting] = useState(true)
   const [videoEnabled, setVideoEnabled] = useState(true)
   const [audioEnabled, setAudioEnabled] = useState(true)
+  const [peerAudioMuted, setPeerAudioMuted] = useState(false)
+  const [peerVideoEnabled, setPeerVideoEnabled] = useState(true)
   const [showChat, setShowChat] = useState(true)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
 
@@ -120,7 +122,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
         setInitiator(!!msg.initiator)
         setIsConnecting(false)
         // Show candidate found message with user name and id
-        appendSystem(`${peerName} (${msg.peerId.substring(0, 8)}...) - Candidate found`)
+        appendSystem(`👋 ${peerName} (${msg.peerId.substring(0, 8)}...) - Candidate found`)
         startCall(msg.initiator, msg.peerId)
       }
       
@@ -142,6 +144,8 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
         peerUsernameRef.current = null
         setInitiator(false)
         setIsConnecting(true)
+        setPeerAudioMuted(false)
+        setPeerVideoEnabled(true)
         
         // Clean up the peer connection
         cleanupPeer()
@@ -317,12 +321,33 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     dc.onopen = () => {
       console.log('Data channel opened, readyState:', dc.readyState)
       appendSystem('Chat is enabled')
+      // Send current mute and video status when data channel opens
+      sendMuteStatus()
+      sendVideoStatus()
     }
     
     dc.onmessage = (e) => {
       console.log('Received message:', e.data)
-      const senderName = peerUsernameRef.current || 'Partner'
-      appendMessage('partner', e.data, senderName)
+      
+      // Try to parse as JSON for control messages
+      try {
+        const msg = JSON.parse(e.data)
+        if (msg.type === 'muteStatus') {
+          setPeerAudioMuted(msg.muted)
+          return
+        }
+        if (msg.type === 'videoStatus') {
+          setPeerVideoEnabled(msg.enabled)
+          return
+        }
+        // If it's JSON but not a control message, treat as chat
+        const senderName = peerUsernameRef.current || 'Partner'
+        appendMessage('partner', e.data, senderName)
+      } catch {
+        // Not JSON, treat as plain text chat message
+        const senderName = peerUsernameRef.current || 'Partner'
+        appendMessage('partner', e.data, senderName)
+      }
     }
     
     dc.onerror = (e) => {
@@ -333,6 +358,8 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     dc.onclose = () => {
       console.log('Data channel closed')
       appendSystem('Chat disconnected')
+      setPeerAudioMuted(false) // Reset mute status when channel closes
+      setPeerVideoEnabled(true) // Reset video status when channel closes
     }
   }
 
@@ -367,33 +394,45 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
 
     try {
       if (data.type === 'offer') {
-        // Ensure data channel handler is set up before processing offer
-        // This is critical - if the handler isn't set, we'll miss the data channel
-        if (!pc.ondatachannel) {
-          pc.ondatachannel = (e) => {
-            console.log('Data channel received in handleSignal:', e.channel.label)
-            dataChannelRef.current = e.channel
-            setupDataChannel(e.channel)
+        // Only process offer if we're in stable state and don't have a remote description
+        // This prevents processing duplicate offers
+        if (pc.signalingState === 'stable' && !pc.remoteDescription) {
+          // Ensure data channel handler is set up before processing offer
+          // This is critical - if the handler isn't set, we'll miss the data channel
+          if (!pc.ondatachannel) {
+            pc.ondatachannel = (e) => {
+              console.log('Data channel received in handleSignal:', e.channel.label)
+              dataChannelRef.current = e.channel
+              setupDataChannel(e.channel)
+            }
           }
+          
+          appendSystem('Received offer from peer')
+          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
+          // Apply any pending candidates after setting remote description
+          await applyPendingCandidates()
+          const answer = await pc.createAnswer()
+          await pc.setLocalDescription(answer)
+          sendWs({ 
+            type: 'signal', 
+            to: from, 
+            data: { type: 'answer', sdp: answer } 
+          })
+          appendSystem('Answer created and sent')
+        } else {
+          console.warn('Ignoring offer - signaling state:', pc.signalingState, 'remoteDescription:', !!pc.remoteDescription)
         }
-        
-        appendSystem('Received offer from peer')
-        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
-        // Apply any pending candidates after setting remote description
-        await applyPendingCandidates()
-        const answer = await pc.createAnswer()
-        await pc.setLocalDescription(answer)
-        sendWs({ 
-          type: 'signal', 
-          to: from, 
-          data: { type: 'answer', sdp: answer } 
-        })
-        appendSystem('Answer created and sent')
       } else if (data.type === 'answer') {
-        appendSystem('Received answer from peer')
-        await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
-        // Apply any pending candidates after setting remote description
-        await applyPendingCandidates()
+        // Only set answer if we're in the correct state (have-local-offer)
+        // and haven't already set a remote description
+        if (pc.signalingState === 'have-local-offer' && !pc.remoteDescription) {
+          appendSystem('Received answer from peer')
+          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))
+          // Apply any pending candidates after setting remote description
+          await applyPendingCandidates()
+        } else {
+          console.warn('Ignoring answer - signaling state:', pc.signalingState, 'remoteDescription:', !!pc.remoteDescription)
+        }
       } else if (data.type === 'candidate') {
         // Check if remote description is set before adding candidate
         if (pc.remoteDescription) {
@@ -476,6 +515,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     peerUsernameRef.current = null
     setInitiator(false)
     setIsConnecting(true)
+    setPeerAudioMuted(false)
     
     // Clean up current connection first
     cleanupPeer()
@@ -518,12 +558,43 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     }
   }
 
+  function sendVideoStatus(enabled) {
+    if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
+      try {
+        const videoStatus = JSON.stringify({ 
+          type: 'videoStatus', 
+          enabled: enabled !== undefined ? enabled : videoEnabled 
+        })
+        dataChannelRef.current.send(videoStatus)
+      } catch (err) {
+        console.error('Error sending video status:', err)
+      }
+    }
+  }
+
   function toggleVideo() {
     if (localStreamRef.current) {
       const videoTrack = localStreamRef.current.getVideoTracks()[0]
       if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled
-        setVideoEnabled(videoTrack.enabled)
+        const newEnabled = !videoTrack.enabled
+        videoTrack.enabled = newEnabled
+        setVideoEnabled(newEnabled)
+        // Send video status to peer
+        sendVideoStatus(newEnabled)
+      }
+    }
+  }
+
+  function sendMuteStatus(muted) {
+    if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
+      try {
+        const muteStatus = JSON.stringify({ 
+          type: 'muteStatus', 
+          muted: muted !== undefined ? muted : !audioEnabled 
+        })
+        dataChannelRef.current.send(muteStatus)
+      } catch (err) {
+        console.error('Error sending mute status:', err)
       }
     }
   }
@@ -532,8 +603,11 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0]
       if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled
-        setAudioEnabled(audioTrack.enabled)
+        const newEnabled = !audioTrack.enabled
+        audioTrack.enabled = newEnabled
+        setAudioEnabled(newEnabled)
+        // Send mute status to peer (muted = !enabled)
+        sendMuteStatus(!newEnabled)
       }
     }
   }
@@ -552,7 +626,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
         {/* Video Section */}
         <div className="flex-1 relative bg-black min-h-0">
-          {/* Other Person's Video (Main) */}
+            {/* Other Person's Video (Main) */}
           <div className="w-full h-full relative">
             <div className="w-full h-full bg-gray-800 flex items-center justify-center">
               {isConnected ? (
@@ -571,6 +645,14 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
                       </div>
                     </div>
                   )}
+                  {!peerVideoEnabled && (
+                    <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
+                      <div className="text-center">
+                        <VideoOff className="w-12 h-12 md:w-16 md:h-16 text-gray-500 mx-auto mb-2 md:mb-3" />
+                        <p className="text-gray-400 text-sm md:text-base">Video Off</p>
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="text-center">
@@ -584,18 +666,19 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
             {/* Your Video (Picture-in-Picture) */}
             <div className="absolute bottom-2 right-2 md:bottom-3 md:right-3 w-32 h-24 md:w-48 md:h-36 bg-gray-700 rounded-lg overflow-hidden border-[1.5px] border-gray-600 shadow-lg">
               <div className="w-full h-full flex items-center justify-center relative">
-                {videoEnabled ? (
-                  <video 
-                    ref={localVideoRef} 
-                    autoPlay 
-                    muted 
-                    playsInline 
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="text-center">
-                    <VideoOff className="w-6 h-6 md:w-9 md:h-9 text-gray-500 mx-auto mb-1 md:mb-1.5" />
-                    <p className="text-gray-400 text-[10px] md:text-xs">Video Off</p>
+                <video 
+                  ref={localVideoRef} 
+                  autoPlay 
+                  muted 
+                  playsInline 
+                  className="w-full h-full object-cover"
+                />
+                {!videoEnabled && (
+                  <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
+                    <div className="text-center">
+                      <VideoOff className="w-6 h-6 md:w-9 md:h-9 text-gray-500 mx-auto mb-1 md:mb-1.5" />
+                      <p className="text-gray-400 text-[10px] md:text-xs">Video Off</p>
+                    </div>
                   </div>
                 )}
               </div>
@@ -612,16 +695,13 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
               </div>
             )}
 
-            {/* Current User Info */}
-            <div className="absolute top-2 right-2 md:top-3 md:right-3 bg-black bg-opacity-70 text-white px-2 py-1 rounded-lg text-[10px] md:text-xs">
-              <div className="font-semibold">{userName || 'You'}</div>
-              <div className="text-gray-300 opacity-75">({userId ? userId.substring(0, 8) + '...' : 'unknown'})</div>
-            </div>
-
             {/* Remote Video Label */}
             {peerUsername && (
-              <div className="absolute bottom-2 left-2 md:bottom-3 md:left-3 bg-black bg-opacity-70 text-white px-2 py-0.5 rounded-full text-[10px] md:text-xs">
-                {peerUsername}
+              <div className="absolute bottom-2 left-2 md:bottom-3 md:left-3 bg-black bg-opacity-70 text-white px-2 py-0.5 rounded-full text-[10px] md:text-xs flex items-center gap-1">
+                {peerAudioMuted && (
+                  <MicOff className="w-3 h-3 md:w-3.5 md:h-3.5 text-red-400" />
+                )}
+                <span>{peerUsername}</span>
               </div>
             )}
           </div>
