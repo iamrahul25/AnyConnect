@@ -914,6 +914,52 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     }
   }, [showChat])
 
+  // Adjust local video position when chatbox width changes to prevent overlap
+  useEffect(() => {
+    if (!showChat || !remoteVideoContainerRef.current || !localVideoContainerRef.current) return
+    if (isDragging || isResizingLocal) return // Don't adjust while user is interacting
+    
+    // Use a small timeout to ensure DOM has updated after videoSize change
+    const timeoutId = setTimeout(() => {
+      const container = remoteVideoContainerRef.current
+      const videoContainer = localVideoContainerRef.current
+      if (!container || !videoContainer) return
+      
+      const containerRect = container.getBoundingClientRect()
+      const videoRect = videoContainer.getBoundingClientRect()
+      
+      // Get current position from state or calculate from DOM
+      let currentX = localVideoPosition.x
+      let currentY = localVideoPosition.y
+      
+      // If position is null (default), get it from DOM and initialize
+      if (currentX === null || currentY === null) {
+        currentX = videoRect.left - containerRect.left
+        currentY = videoRect.top - containerRect.top
+        // Initialize position - will be constrained in next render if needed
+        setLocalVideoPosition({ x: currentX, y: currentY })
+        return
+      }
+      
+      const currentWidth = localVideoSize.width || videoRect.width
+      const currentHeight = localVideoSize.height || videoRect.height
+      
+      // Constrain position to container bounds
+      const maxX = Math.max(0, containerRect.width - currentWidth)
+      const maxY = Math.max(0, containerRect.height - currentHeight)
+      
+      let newX = Math.max(0, Math.min(currentX, maxX))
+      let newY = Math.max(0, Math.min(currentY, maxY))
+      
+      // Only update if position changed
+      if (newX !== currentX || newY !== currentY) {
+        setLocalVideoPosition({ x: newX, y: newY })
+      }
+    }, 10)
+    
+    return () => clearTimeout(timeoutId)
+  }, [videoSize, showChat, localVideoSize, isDragging, isResizingLocal, localVideoPosition])
+
   // Handle drag logic for local video
   const handleDragStart = (e) => {
     // Don't start drag if clicking on resize handle
