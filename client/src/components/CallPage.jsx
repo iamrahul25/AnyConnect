@@ -104,7 +104,11 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     const setHeight = () => {
       // Use window.innerHeight which gives the actual visible viewport height
       // This accounts for mobile browser UI elements
-      const height = window.innerHeight
+      // Also try visualViewport if available for better mobile support
+      let height = window.innerHeight
+      if (window.visualViewport) {
+        height = window.visualViewport.height
+      }
       setViewportHeight(`${height}px`)
     }
 
@@ -1041,7 +1045,13 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     <div 
       ref={mainContainerRef}
       className="w-full bg-gray-900 flex flex-col overflow-hidden"
-      style={{ height: viewportHeight }}
+      style={{ 
+        height: viewportHeight, 
+        maxHeight: viewportHeight,
+        minHeight: 0,
+        width: '100%',
+        position: 'relative'
+      }}
     >
       {/* Main Content Area */}
       <div ref={containerRef} className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
