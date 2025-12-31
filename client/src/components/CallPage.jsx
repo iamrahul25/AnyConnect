@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Video, VideoOff, Mic, MicOff, MessageSquare, MessageSquareX, Phone, SkipForward, Send, Smile, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Maximize, Minimize } from 'lucide-react'
 
 // ChatMessages component with auto-scroll
@@ -860,6 +860,77 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
       setVideoSize({ width: null, height: null })
     }
   }, [showChat])
+
+  // Adjust local video position when container size changes (e.g., when chat box resizes)
+  useLayoutEffect(() => {
+    if (!localVideoContainerRef.current || !remoteVideoContainerRef.current) return
+    
+    // Use a function to get current position from state to avoid dependency issues
+    setLocalVideoPosition(prevPos => {
+      if (prevPos.x === null || prevPos.y === null) return prevPos
+
+      const container = remoteVideoContainerRef.current
+      const videoContainer = localVideoContainerRef.current
+      const containerRect = container.getBoundingClientRect()
+      const videoRect = videoContainer.getBoundingClientRect()
+
+      // Get current video size (use state if set, otherwise use actual dimensions)
+      const currentWidth = localVideoSize.width || videoRect.width
+      const currentHeight = localVideoSize.height || videoRect.height
+
+      // Calculate maximum allowed position
+      const maxX = Math.max(0, containerRect.width - currentWidth)
+      const maxY = Math.max(0, containerRect.height - currentHeight)
+
+      // Constrain position to container bounds
+      let newX = Math.max(0, Math.min(prevPos.x, maxX))
+      let newY = Math.max(0, Math.min(prevPos.y, maxY))
+
+      // Only update if position changed
+      if (newX !== prevPos.x || newY !== prevPos.y) {
+        return { x: newX, y: newY }
+      }
+      return prevPos
+    })
+  }, [videoSize, showChat, localVideoSize])
+
+  // Handle window resize to adjust local video position
+  useEffect(() => {
+    const handleResize = () => {
+      if (!localVideoContainerRef.current || !remoteVideoContainerRef.current) return
+      if (localVideoPosition.x === null || localVideoPosition.y === null) return
+
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        if (!localVideoContainerRef.current || !remoteVideoContainerRef.current) return
+
+        const container = remoteVideoContainerRef.current
+        const videoContainer = localVideoContainerRef.current
+        const containerRect = container.getBoundingClientRect()
+        const videoRect = videoContainer.getBoundingClientRect()
+
+        // Get current video size (use state if set, otherwise use actual dimensions)
+        const currentWidth = localVideoSize.width || videoRect.width
+        const currentHeight = localVideoSize.height || videoRect.height
+
+        // Calculate maximum allowed position
+        const maxX = Math.max(0, containerRect.width - currentWidth)
+        const maxY = Math.max(0, containerRect.height - currentHeight)
+
+        // Constrain position to container bounds
+        let newX = Math.max(0, Math.min(localVideoPosition.x, maxX))
+        let newY = Math.max(0, Math.min(localVideoPosition.y, maxY))
+
+        // Only update if position changed
+        if (newX !== localVideoPosition.x || newY !== localVideoPosition.y) {
+          setLocalVideoPosition({ x: newX, y: newY })
+        }
+      })
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [localVideoPosition, localVideoSize])
 
   // Handle drag logic for local video
   const handleDragStart = (e) => {
