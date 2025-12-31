@@ -3,10 +3,21 @@ import { Video, VideoOff, Mic, MicOff, MessageSquare, MessageSquareX, Phone, Ski
 
 // ChatMessages component with auto-scroll
 function ChatMessages({ messages }) {
+  const messagesContainerRef = useRef(null)
   const messagesEndRef = useRef(null)
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // Scroll only the messages container, not the entire page
+    // This prevents white space issues on mobile when keyboard is open
+    if (messagesContainerRef.current) {
+      const container = messagesContainerRef.current
+      // Use scrollTo on the container itself to ensure only the container scrolls
+      // This prevents the parent/page from scrolling, especially on mobile with keyboard
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: 'smooth'
+      })
+    }
   }, [messages])
 
   const formatTime = (timestamp) => {
@@ -16,7 +27,15 @@ function ChatMessages({ messages }) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-2 md:p-3 space-y-1.5 md:space-y-2">
+    <div 
+      ref={messagesContainerRef}
+      className="flex-1 overflow-y-auto p-2 md:p-3 space-y-1.5 md:space-y-2"
+      style={{ 
+        // Prevent scroll chaining to parent containers on mobile
+        overscrollBehavior: 'contain',
+        WebkitOverflowScrolling: 'touch'
+      }}
+    >
       {messages.map((m, i) => {
         if (m.from === 'system') {
           return (
