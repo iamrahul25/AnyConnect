@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Video, VideoOff, Mic, MicOff, MessageSquare, Phone, SkipForward, Send, Smile, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react'
+import { Video, VideoOff, Mic, MicOff, MessageSquare, MessageSquareX, Phone, SkipForward, Send, Smile, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react'
 
 // ChatMessages component with auto-scroll
 function ChatMessages({ messages }) {
@@ -708,6 +708,13 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     }
   }, [isResizing])
 
+  // Reset video size when chat is hidden to allow video to expand fully
+  useEffect(() => {
+    if (!showChat) {
+      setVideoSize({ width: null, height: null })
+    }
+  }, [showChat])
+
   return (
     <div className="w-full h-screen bg-gray-900 flex flex-col overflow-hidden">
       {/* Main Content Area */}
@@ -715,13 +722,13 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
         {/* Video Section */}
         <div 
           className={`relative bg-black min-h-0 ${
-            videoSize.width === null && videoSize.height === null ? 'flex-1' : ''
+            !showChat || (videoSize.width === null && videoSize.height === null) ? 'flex-1' : ''
           }`}
           style={{
-            ...(videoSize.width !== null && {
+            ...(showChat && videoSize.width !== null && {
               width: `${videoSize.width}%`,
             }),
-            ...(videoSize.height !== null && {
+            ...(showChat && videoSize.height !== null && {
               height: `${videoSize.height}%`,
             }),
           }}
@@ -930,10 +937,16 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
           {/* Toggle Chat */}
           <button
             onClick={() => setShowChat(!showChat)}
-            className="p-2 md:p-3 bg-gray-700 hover:bg-gray-600 rounded-full transition-all"
-            title="Toggle chat"
+            className={`p-2 md:p-3 rounded-full transition-all ${
+              !showChat ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-700 hover:bg-gray-600'
+            }`}
+            title={showChat ? 'Hide chat' : 'Show chat'}
           >
-            <MessageSquare className="w-4 h-4 md:w-[18px] md:h-[18px] text-white" />
+            {!showChat ? (
+              <MessageSquareX className="w-4 h-4 md:w-[18px] md:h-[18px] text-white" />
+            ) : (
+              <MessageSquare className="w-4 h-4 md:w-[18px] md:h-[18px] text-white" />
+            )}
           </button>
 
           {/* Next */}
