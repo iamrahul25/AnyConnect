@@ -56,7 +56,7 @@ function ChatMessages({ messages }) {
                   : 'bg-gray-700 text-gray-100'
               }`}
             >
-              <p className="break-words text-sm md:text-base">{m.text}</p>
+              <p className="break-words text-[12px] md:text-[13px]">{m.text}</p>
               <p className={`text-[8px] md:text-[9px] mt-0.5 ${
                 isMe ? 'text-blue-200' : 'text-gray-400'
               }`}>
@@ -1597,14 +1597,14 @@ function ChatInput({ onSend, disabled, showEmojiPicker, setShowEmojiPicker, emoj
       )}
 
       {/* Message Input */}
-      <div className="p-2 md:p-3 bg-gray-900 border-t border-gray-700 flex-shrink-0">
-        <div className="flex items-end gap-1 md:gap-1.5">
+      <div className="pt-2 px-2 pb-[6px] md:pt-3 md:px-3 md:pb-[10px] bg-gray-900 border-t border-gray-700 flex-shrink-0">
+        <div className="flex items-center gap-1 md:gap-1.5">
           <button
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className="p-1 md:p-1.5 hover:bg-gray-700 rounded-lg transition-colors flex-shrink-0"
+            className="p-1.5 md:p-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors flex-shrink-0 flex items-center justify-center h-[32px] md:h-[36px]"
             type="button"
           >
-            <Smile className="w-3.5 h-3.5 md:w-4 md:h-4 text-gray-400" />
+            <Smile className="w-3.5 h-3.5 md:w-4 md:h-4 text-gray-300" />
           </button>
           <div className="flex-1 min-w-0">
             <textarea
@@ -1615,16 +1615,17 @@ function ChatInput({ onSend, disabled, showEmojiPicker, setShowEmojiPicker, emoj
               onBlur={handleBlur}
               placeholder={disabled ? "Waiting for connection..." : "Type a message..."}
               disabled={disabled}
-              className="w-full bg-gray-700 text-white rounded-lg px-2 py-1 md:py-1.5 resize-none outline-none focus:ring-2 focus:ring-blue-500 text-sm md:text-base"
+              className="w-full bg-gray-700 text-white rounded-lg px-2 py-1.5 md:py-2 resize-none outline-none focus:ring-2 focus:ring-blue-500 text-[10px] md:text-[11px] h-[32px] md:h-[36px]"
               rows="1"
             />
           </div>
           <button
             onClick={submit}
             disabled={disabled || !value.trim()}
-            className="p-1 md:p-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors flex-shrink-0"
+            className="px-2 py-1.5 md:px-2.5 md:py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg transition-colors flex-shrink-0 flex items-center justify-center gap-1 h-[32px] md:h-[36px]"
             type="button"
           >
+            <span className="text-white text-[10px] md:text-[11px] font-medium">Send</span>
             <Send className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />
           </button>
         </div>
