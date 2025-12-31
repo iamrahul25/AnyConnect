@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Video, VideoOff, Mic, MicOff, MessageSquare, MessageSquareX, Phone, SkipForward, Send, Smile, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Maximize, Minimize } from 'lucide-react'
 
 // ChatMessages component with auto-scroll
@@ -102,9 +102,8 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
   // Set viewport height to account for mobile browser UI (search bar, address bar, etc.)
   useEffect(() => {
     const setHeight = () => {
-      // Use window.innerHeight which gives the actual visible viewport height
-      // This accounts for mobile browser UI elements
-      // Also try visualViewport if available for better mobile support
+      // Prefer visualViewport.height as it automatically accounts for keyboard
+      // This is the most reliable way to get the correct viewport height on mobile
       let height = window.innerHeight
       if (window.visualViewport) {
         height = window.visualViewport.height
@@ -119,56 +118,91 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     window.addEventListener('resize', setHeight)
     window.addEventListener('orientationchange', setHeight)
     
-    // Also listen for visual viewport changes (better for mobile)
+    // Listen for visual viewport changes - this handles keyboard open/close automatically
+    // Update immediately without delay for responsive height adjustment
     let visualViewportHandlers = null
     if (window.visualViewport) {
-      const handleViewportChange = () => {
-        // Use a small delay to ensure keyboard animation completes
-        setTimeout(() => {
-          setHeight()
-        }, 100)
+      const handleViewportResize = () => {
+        // Update immediately when viewport changes (keyboard open/close)
+        setHeight()
       }
-      window.visualViewport.addEventListener('resize', handleViewportChange)
-      window.visualViewport.addEventListener('scroll', handleViewportChange)
-      visualViewportHandlers = handleViewportChange
-    }
-
-    // Handle focus/blur events to recalculate when keyboard appears/disappears
-    const handleFocus = () => {
-      // Keyboard is opening, recalculate after a short delay
-      setTimeout(() => {
-        setHeight()
-      }, 300)
-    }
-
-    const handleBlur = () => {
-      // Keyboard is closing, recalculate after animation completes
-      setTimeout(() => {
-        setHeight()
-        // Prevent scroll to top on mobile
-        if (window.scrollY !== 0) {
-          window.scrollTo(0, 0)
+      
+      const handleViewportScroll = () => {
+        // Prevent any scrolling in the visual viewport
+        if (window.visualViewport) {
+          window.visualViewport.scrollTop = 0
         }
-      }, 300)
+      }
+      
+      window.visualViewport.addEventListener('resize', handleViewportResize)
+      window.visualViewport.addEventListener('scroll', handleViewportScroll)
+      visualViewportHandlers = { resize: handleViewportResize, scroll: handleViewportScroll }
     }
 
-    // Listen for input focus/blur events on mobile
+    // Prevent body scrolling on mobile while allowing scrolling in chat area
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+    let preventScroll = null
+    let originalBodyStyles = null
+    
     if (isMobile) {
-      document.addEventListener('focusin', handleFocus)
-      document.addEventListener('focusout', handleBlur)
+      // Store original body styles
+      originalBodyStyles = {
+        overflow: document.body.style.overflow,
+        position: document.body.style.position,
+        width: document.body.style.width,
+        height: document.body.style.height
+      }
+      
+      // Prevent body from scrolling
+      document.body.style.overflow = 'hidden'
+      document.body.style.position = 'fixed'
+      document.body.style.width = '100%'
+      document.body.style.height = '100%'
+      
+      // Prevent scroll on touchmove outside scrollable areas
+      preventScroll = (e) => {
+        // Allow scrolling in elements with overflow-y-auto or overflow-auto
+        const target = e.target
+        let element = target
+        let isScrollable = false
+        
+        // Check if target or any parent is scrollable
+        while (element && element !== document.body) {
+          const style = window.getComputedStyle(element)
+          const overflowY = style.overflowY || style.overflow
+          if (overflowY === 'auto' || overflowY === 'scroll') {
+            isScrollable = true
+            break
+          }
+          // Also allow textarea and input
+          if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
+            isScrollable = true
+            break
+          }
+          element = element.parentElement
+        }
+        
+        if (!isScrollable && e.cancelable) {
+          e.preventDefault()
+        }
+      }
+      
+      document.addEventListener('touchmove', preventScroll, { passive: false })
     }
 
     return () => {
       window.removeEventListener('resize', setHeight)
       window.removeEventListener('orientationchange', setHeight)
       if (window.visualViewport && visualViewportHandlers) {
-        window.visualViewport.removeEventListener('resize', visualViewportHandlers)
-        window.visualViewport.removeEventListener('scroll', visualViewportHandlers)
+        window.visualViewport.removeEventListener('resize', visualViewportHandlers.resize)
+        window.visualViewport.removeEventListener('scroll', visualViewportHandlers.scroll)
       }
-      if (isMobile) {
-        document.removeEventListener('focusin', handleFocus)
-        document.removeEventListener('focusout', handleBlur)
+      if (isMobile && originalBodyStyles && preventScroll) {
+        document.body.style.overflow = originalBodyStyles.overflow
+        document.body.style.position = originalBodyStyles.position
+        document.body.style.width = originalBodyStyles.width
+        document.body.style.height = originalBodyStyles.height
+        document.removeEventListener('touchmove', preventScroll)
       }
     }
   }, [])
@@ -861,77 +895,6 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     }
   }, [showChat])
 
-  // Adjust local video position when container size changes (e.g., when chat box resizes)
-  useLayoutEffect(() => {
-    if (!localVideoContainerRef.current || !remoteVideoContainerRef.current) return
-    
-    // Use a function to get current position from state to avoid dependency issues
-    setLocalVideoPosition(prevPos => {
-      if (prevPos.x === null || prevPos.y === null) return prevPos
-
-      const container = remoteVideoContainerRef.current
-      const videoContainer = localVideoContainerRef.current
-      const containerRect = container.getBoundingClientRect()
-      const videoRect = videoContainer.getBoundingClientRect()
-
-      // Get current video size (use state if set, otherwise use actual dimensions)
-      const currentWidth = localVideoSize.width || videoRect.width
-      const currentHeight = localVideoSize.height || videoRect.height
-
-      // Calculate maximum allowed position
-      const maxX = Math.max(0, containerRect.width - currentWidth)
-      const maxY = Math.max(0, containerRect.height - currentHeight)
-
-      // Constrain position to container bounds
-      let newX = Math.max(0, Math.min(prevPos.x, maxX))
-      let newY = Math.max(0, Math.min(prevPos.y, maxY))
-
-      // Only update if position changed
-      if (newX !== prevPos.x || newY !== prevPos.y) {
-        return { x: newX, y: newY }
-      }
-      return prevPos
-    })
-  }, [videoSize, showChat, localVideoSize])
-
-  // Handle window resize to adjust local video position
-  useEffect(() => {
-    const handleResize = () => {
-      if (!localVideoContainerRef.current || !remoteVideoContainerRef.current) return
-      if (localVideoPosition.x === null || localVideoPosition.y === null) return
-
-      // Use requestAnimationFrame to ensure DOM has updated
-      requestAnimationFrame(() => {
-        if (!localVideoContainerRef.current || !remoteVideoContainerRef.current) return
-
-        const container = remoteVideoContainerRef.current
-        const videoContainer = localVideoContainerRef.current
-        const containerRect = container.getBoundingClientRect()
-        const videoRect = videoContainer.getBoundingClientRect()
-
-        // Get current video size (use state if set, otherwise use actual dimensions)
-        const currentWidth = localVideoSize.width || videoRect.width
-        const currentHeight = localVideoSize.height || videoRect.height
-
-        // Calculate maximum allowed position
-        const maxX = Math.max(0, containerRect.width - currentWidth)
-        const maxY = Math.max(0, containerRect.height - currentHeight)
-
-        // Constrain position to container bounds
-        let newX = Math.max(0, Math.min(localVideoPosition.x, maxX))
-        let newY = Math.max(0, Math.min(localVideoPosition.y, maxY))
-
-        // Only update if position changed
-        if (newX !== localVideoPosition.x || newY !== localVideoPosition.y) {
-          setLocalVideoPosition({ x: newX, y: newY })
-        }
-      })
-    }
-
-    window.addEventListener('resize', handleResize)
-    return () => window.removeEventListener('resize', handleResize)
-  }, [localVideoPosition, localVideoSize])
-
   // Handle drag logic for local video
   const handleDragStart = (e) => {
     // Don't start drag if clicking on resize handle
@@ -1158,7 +1121,8 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
         top: 0,
         left: 0,
         right: 0,
-        bottom: 0
+        bottom: 0,
+        overflow: 'hidden'
       }}
     >
       {/* Main Content Area */}
