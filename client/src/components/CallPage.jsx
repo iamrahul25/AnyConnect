@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Video, VideoOff, Mic, MicOff, MessageSquare, MessageSquareX, Phone, SkipForward, Send, Smile, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react'
+import { Video, VideoOff, Mic, MicOff, MessageSquare, MessageSquareX, Phone, SkipForward, Send, Smile, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Maximize, Minimize } from 'lucide-react'
 
 // ChatMessages component with auto-scroll
 function ChatMessages({ messages }) {
@@ -72,7 +72,9 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [videoSize, setVideoSize] = useState({ width: null, height: null }) // null means use flex-1
   const [isResizing, setIsResizing] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const containerRef = useRef(null)
+  const remoteVideoContainerRef = useRef(null)
 
   const localVideoRef = useRef(null)
   const remoteVideoRef = useRef(null)
@@ -687,6 +689,67 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     setIsResizing(false)
   }
 
+  // Fullscreen toggle function with cross-browser and mobile support
+  const toggleFullscreen = async () => {
+    const element = document.documentElement // Use documentElement for F11-like behavior
+    
+    try {
+      if (!document.fullscreenElement && 
+          !document.webkitFullscreenElement && 
+          !document.mozFullScreenElement && 
+          !document.msFullscreenElement) {
+        // Enter fullscreen
+        if (element.requestFullscreen) {
+          await element.requestFullscreen()
+        } else if (element.webkitRequestFullscreen) {
+          await element.webkitRequestFullscreen()
+        } else if (element.mozRequestFullScreen) {
+          await element.mozRequestFullScreen()
+        } else if (element.msRequestFullscreen) {
+          await element.msRequestFullscreen()
+        }
+      } else {
+        // Exit fullscreen
+        if (document.exitFullscreen) {
+          await document.exitFullscreen()
+        } else if (document.webkitExitFullscreen) {
+          await document.webkitExitFullscreen()
+        } else if (document.mozCancelFullScreen) {
+          await document.mozCancelFullScreen()
+        } else if (document.msExitFullscreen) {
+          await document.msExitFullscreen()
+        }
+      }
+    } catch (err) {
+      console.error('Error toggling fullscreen:', err)
+    }
+  }
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isCurrentlyFullscreen = !!(
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        document.msFullscreenElement
+      )
+      setIsFullscreen(isCurrentlyFullscreen)
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
+    document.addEventListener('mozfullscreenchange', handleFullscreenChange)
+    document.addEventListener('MSFullscreenChange', handleFullscreenChange)
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange)
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange)
+      document.removeEventListener('mozfullscreenchange', handleFullscreenChange)
+      document.removeEventListener('MSFullscreenChange', handleFullscreenChange)
+    }
+  }, [])
+
   useEffect(() => {
     if (isResizing) {
       const handleMouseMove = (e) => handleResize(e)
@@ -734,7 +797,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
           }}
         >
             {/* Other Person's Video (Main) */}
-          <div className="w-full h-full relative">
+          <div ref={remoteVideoContainerRef} className="w-full h-full relative">
             <div className="w-full h-full bg-gray-800 flex items-center justify-center">
               {isConnected ? (
                 <>
@@ -769,6 +832,22 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
                 </div>
               )}
             </div>
+
+            {/* Fullscreen Button */}
+            {isConnected && (
+              <button
+                onClick={toggleFullscreen}
+                className="absolute top-2 right-2 md:top-3 md:right-3 bg-black bg-opacity-70 hover:bg-opacity-90 text-white p-2 rounded-lg transition-all z-20 flex items-center justify-center"
+                title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              >
+                {isFullscreen ? (
+                  <Minimize className="w-4 h-4 md:w-5 md:h-5" />
+                ) : (
+                  <Maximize className="w-4 h-4 md:w-5 md:h-5" />
+                )}
+              </button>
+            )}
 
             {/* Your Video (Picture-in-Picture) */}
             <div className="absolute bottom-2 right-2 md:bottom-3 md:right-3 w-32 h-24 md:w-48 md:h-36 bg-gray-700 rounded-lg overflow-hidden border-[1.5px] border-gray-600 shadow-lg">
