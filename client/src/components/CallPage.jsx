@@ -73,8 +73,14 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
   const [videoSize, setVideoSize] = useState({ width: null, height: null }) // null means use flex-1
   const [isResizing, setIsResizing] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [viewportHeight, setViewportHeight] = useState('100vh')
+  const [localVideoPosition, setLocalVideoPosition] = useState({ x: null, y: null }) // null means use default (bottom-right)
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const containerRef = useRef(null)
   const remoteVideoContainerRef = useRef(null)
+  const mainContainerRef = useRef(null)
+  const localVideoContainerRef = useRef(null)
 
   const localVideoRef = useRef(null)
   const remoteVideoRef = useRef(null)
@@ -89,6 +95,43 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
   const pendingSignalsRef = useRef([]) // Queue for signals that arrive before peer connection is ready
 
   const emojis = ['😊', '😂', '❤️', '👍', '👋', '🎉', '😎', '🔥', '✨', '💯', '😍', '🤔', '😢', '😮', '👏', '🙌']
+
+  // Set viewport height to account for mobile browser UI (search bar, address bar, etc.)
+  useEffect(() => {
+    const setHeight = () => {
+      // Use window.innerHeight which gives the actual visible viewport height
+      // This accounts for mobile browser UI elements
+      const height = window.innerHeight
+      setViewportHeight(`${height}px`)
+    }
+
+    // Set initial height
+    setHeight()
+
+    // Update on resize (handles browser UI changes on mobile)
+    window.addEventListener('resize', setHeight)
+    window.addEventListener('orientationchange', setHeight)
+    
+    // Also listen for visual viewport changes (better for mobile)
+    let visualViewportHandlers = null
+    if (window.visualViewport) {
+      const handleViewportChange = () => {
+        setHeight()
+      }
+      window.visualViewport.addEventListener('resize', handleViewportChange)
+      window.visualViewport.addEventListener('scroll', handleViewportChange)
+      visualViewportHandlers = handleViewportChange
+    }
+
+    return () => {
+      window.removeEventListener('resize', setHeight)
+      window.removeEventListener('orientationchange', setHeight)
+      if (window.visualViewport && visualViewportHandlers) {
+        window.visualViewport.removeEventListener('resize', visualViewportHandlers)
+        window.visualViewport.removeEventListener('scroll', visualViewportHandlers)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     wsRef.current = ws
@@ -778,8 +821,96 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     }
   }, [showChat])
 
+  // Handle drag logic for local video
+  const handleDragStart = (e) => {
+    if (!localVideoContainerRef.current || !remoteVideoContainerRef.current) return
+    
+    setIsDragging(true)
+    const container = remoteVideoContainerRef.current
+    const videoContainer = localVideoContainerRef.current
+    const containerRect = container.getBoundingClientRect()
+    const videoRect = videoContainer.getBoundingClientRect()
+    
+    // Calculate offset from mouse/touch to video container
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+    
+    const offsetX = clientX - videoRect.left
+    const offsetY = clientY - videoRect.top
+    
+    setDragOffset({ x: offsetX, y: offsetY })
+    
+    // If position is null (default), initialize it to current position
+    if (localVideoPosition.x === null || localVideoPosition.y === null) {
+      const currentX = videoRect.left - containerRect.left
+      const currentY = videoRect.top - containerRect.top
+      setLocalVideoPosition({ x: currentX, y: currentY })
+    }
+    
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDrag = (e) => {
+    if (!isDragging || !remoteVideoContainerRef.current || !localVideoContainerRef.current) return
+    
+    const container = remoteVideoContainerRef.current
+    const videoContainer = localVideoContainerRef.current
+    const containerRect = container.getBoundingClientRect()
+    const videoRect = videoContainer.getBoundingClientRect()
+    
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+    
+    // Calculate new position relative to container
+    let newX = clientX - containerRect.left - dragOffset.x
+    let newY = clientY - containerRect.top - dragOffset.y
+    
+    // Constrain to container bounds
+    const maxX = containerRect.width - videoRect.width
+    const maxY = containerRect.height - videoRect.height
+    
+    newX = Math.max(0, Math.min(newX, maxX))
+    newY = Math.max(0, Math.min(newY, maxY))
+    
+    setLocalVideoPosition({ x: newX, y: newY })
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleDragEnd = () => {
+    setIsDragging(false)
+    setDragOffset({ x: 0, y: 0 })
+  }
+
+  // Add event listeners for dragging
+  useEffect(() => {
+    if (isDragging) {
+      const handleMouseMove = (e) => handleDrag(e)
+      const handleMouseUp = () => handleDragEnd()
+      const handleTouchMove = (e) => handleDrag(e)
+      const handleTouchEnd = () => handleDragEnd()
+
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+      document.addEventListener('touchmove', handleTouchMove, { passive: false })
+      document.addEventListener('touchend', handleTouchEnd)
+
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', handleMouseUp)
+        document.removeEventListener('touchmove', handleTouchMove)
+        document.removeEventListener('touchend', handleTouchEnd)
+      }
+    }
+  }, [isDragging, dragOffset, localVideoPosition])
+
   return (
-    <div className="w-full h-screen bg-gray-900 flex flex-col overflow-hidden">
+    <div 
+      ref={mainContainerRef}
+      className="w-full bg-gray-900 flex flex-col overflow-hidden"
+      style={{ height: viewportHeight }}
+    >
       {/* Main Content Area */}
       <div ref={containerRef} className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
         {/* Video Section */}
@@ -850,14 +981,33 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
             )}
 
             {/* Your Video (Picture-in-Picture) */}
-            <div className="absolute bottom-2 right-2 md:bottom-3 md:right-3 w-32 h-24 md:w-48 md:h-36 bg-gray-700 rounded-lg overflow-hidden border-[1.5px] border-gray-600 shadow-lg">
+            <div 
+              ref={localVideoContainerRef}
+              className={`absolute w-32 h-24 md:w-48 md:h-36 bg-gray-700 rounded-lg overflow-hidden border-[1.5px] border-gray-600 shadow-lg cursor-move ${isDragging ? 'opacity-90' : ''}`}
+              style={{
+                ...(localVideoPosition.x !== null && localVideoPosition.y !== null ? {
+                  left: `${localVideoPosition.x}px`,
+                  top: `${localVideoPosition.y}px`,
+                  bottom: 'auto',
+                  right: 'auto',
+                } : {
+                  bottom: '0.5rem',
+                  right: '0.5rem',
+                  left: 'auto',
+                  top: 'auto',
+                }),
+                touchAction: 'none',
+              }}
+              onMouseDown={handleDragStart}
+              onTouchStart={handleDragStart}
+            >
               <div className="w-full h-full flex items-center justify-center relative">
                 <video 
                   ref={localVideoRef} 
                   autoPlay 
                   muted 
                   playsInline 
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover pointer-events-none"
                 />
                 {!videoEnabled && (
                   <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
@@ -868,7 +1018,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
                   </div>
                 )}
               </div>
-              <div className="absolute bottom-1 left-1 md:bottom-1.5 md:left-1.5 bg-black bg-opacity-70 text-white px-1 md:px-1.5 py-0.5 rounded text-[8px] md:text-[9px]">
+              <div className="absolute bottom-1 left-1 md:bottom-1.5 md:left-1.5 bg-black bg-opacity-70 text-white px-1 md:px-1.5 py-0.5 rounded text-[8px] md:text-[9px] pointer-events-none">
                 {userName || 'You'}
               </div>
             </div>
