@@ -75,8 +75,11 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [viewportHeight, setViewportHeight] = useState('100vh')
   const [localVideoPosition, setLocalVideoPosition] = useState({ x: null, y: null }) // null means use default (bottom-right)
+  const [localVideoSize, setLocalVideoSize] = useState({ width: null, height: null }) // null means use default size
   const [isDragging, setIsDragging] = useState(false)
+  const [isResizingLocal, setIsResizingLocal] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const containerRef = useRef(null)
   const remoteVideoContainerRef = useRef(null)
   const mainContainerRef = useRef(null)
@@ -823,6 +826,11 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
 
   // Handle drag logic for local video
   const handleDragStart = (e) => {
+    // Don't start drag if clicking on resize handle
+    if (e.target.closest('.resize-handle')) {
+      return
+    }
+    
     if (!localVideoContainerRef.current || !remoteVideoContainerRef.current) return
     
     setIsDragging(true)
@@ -883,6 +891,108 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     setDragOffset({ x: 0, y: 0 })
   }
 
+  // Handle resize logic for local video
+  const handleLocalResizeStart = (e, corner) => {
+    if (!localVideoContainerRef.current || !remoteVideoContainerRef.current) return
+    
+    setIsResizingLocal(true)
+    const container = remoteVideoContainerRef.current
+    const videoContainer = localVideoContainerRef.current
+    const containerRect = container.getBoundingClientRect()
+    const videoRect = videoContainer.getBoundingClientRect()
+    
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+    
+    // Get current size (use state if set, otherwise use actual dimensions)
+    const currentWidth = localVideoSize.width || videoRect.width
+    const currentHeight = localVideoSize.height || videoRect.height
+    
+    // Get current position (use state if set, otherwise calculate from rect)
+    let currentX = localVideoPosition.x
+    let currentY = localVideoPosition.y
+    
+    if (currentX === null || currentY === null) {
+      currentX = videoRect.left - containerRect.left
+      currentY = videoRect.top - containerRect.top
+      setLocalVideoPosition({ x: currentX, y: currentY })
+    }
+    
+    setResizeStart({
+      x: clientX,
+      y: clientY,
+      width: currentWidth,
+      height: currentHeight,
+      startX: currentX,
+      startY: currentY,
+      corner
+    })
+    
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleLocalResize = (e) => {
+    if (!isResizingLocal || !remoteVideoContainerRef.current || !localVideoContainerRef.current) return
+    
+    const container = remoteVideoContainerRef.current
+    const containerRect = container.getBoundingClientRect()
+    
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY
+    
+    const deltaX = clientX - resizeStart.x
+    const deltaY = clientY - resizeStart.y
+    
+    const minSize = 80 // Minimum width/height in pixels
+    const maxSize = Math.min(containerRect.width * 0.8, containerRect.height * 0.8) // Max 80% of container
+    
+    let newWidth = resizeStart.width
+    let newHeight = resizeStart.height
+    let newX = resizeStart.startX
+    let newY = resizeStart.startY
+    
+    // Handle different corners
+    if (resizeStart.corner === 'se') {
+      // Southeast (bottom-right) - resize from top-left
+      newWidth = Math.max(minSize, Math.min(maxSize, resizeStart.width + deltaX))
+      newHeight = Math.max(minSize, Math.min(maxSize, resizeStart.height + deltaY))
+    } else if (resizeStart.corner === 'sw') {
+      // Southwest (bottom-left) - resize from top-right
+      newWidth = Math.max(minSize, Math.min(maxSize, resizeStart.width - deltaX))
+      newHeight = Math.max(minSize, Math.min(maxSize, resizeStart.height + deltaY))
+      newX = resizeStart.startX + (resizeStart.width - newWidth)
+    } else if (resizeStart.corner === 'ne') {
+      // Northeast (top-right) - resize from bottom-left
+      newWidth = Math.max(minSize, Math.min(maxSize, resizeStart.width + deltaX))
+      newHeight = Math.max(minSize, Math.min(maxSize, resizeStart.height - deltaY))
+      newY = resizeStart.startY + (resizeStart.height - newHeight)
+    } else if (resizeStart.corner === 'nw') {
+      // Northwest (top-left) - resize from bottom-right
+      newWidth = Math.max(minSize, Math.min(maxSize, resizeStart.width - deltaX))
+      newHeight = Math.max(minSize, Math.min(maxSize, resizeStart.height - deltaY))
+      newX = resizeStart.startX + (resizeStart.width - newWidth)
+      newY = resizeStart.startY + (resizeStart.height - newHeight)
+    }
+    
+    // Constrain position to container bounds
+    const maxX = containerRect.width - newWidth
+    const maxY = containerRect.height - newHeight
+    newX = Math.max(0, Math.min(newX, maxX))
+    newY = Math.max(0, Math.min(newY, maxY))
+    
+    setLocalVideoSize({ width: newWidth, height: newHeight })
+    setLocalVideoPosition({ x: newX, y: newY })
+    
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  const handleLocalResizeEnd = () => {
+    setIsResizingLocal(false)
+    setResizeStart({ x: 0, y: 0, width: 0, height: 0, startX: 0, startY: 0, corner: null })
+  }
+
   // Add event listeners for dragging
   useEffect(() => {
     if (isDragging) {
@@ -904,6 +1014,28 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
       }
     }
   }, [isDragging, dragOffset, localVideoPosition])
+
+  // Add event listeners for resizing local video
+  useEffect(() => {
+    if (isResizingLocal) {
+      const handleMouseMove = (e) => handleLocalResize(e)
+      const handleMouseUp = () => handleLocalResizeEnd()
+      const handleTouchMove = (e) => handleLocalResize(e)
+      const handleTouchEnd = () => handleLocalResizeEnd()
+
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+      document.addEventListener('touchmove', handleTouchMove, { passive: false })
+      document.addEventListener('touchend', handleTouchEnd)
+
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', handleMouseUp)
+        document.removeEventListener('touchmove', handleTouchMove)
+        document.removeEventListener('touchend', handleTouchEnd)
+      }
+    }
+  }, [isResizingLocal, resizeStart])
 
   return (
     <div 
@@ -983,7 +1115,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
             {/* Your Video (Picture-in-Picture) */}
             <div 
               ref={localVideoContainerRef}
-              className={`absolute w-32 h-24 md:w-48 md:h-36 bg-gray-700 rounded-lg overflow-hidden border-[1.5px] border-gray-600 shadow-lg cursor-move ${isDragging ? 'opacity-90' : ''}`}
+              className={`absolute bg-gray-700 rounded-lg overflow-hidden border-[1.5px] border-gray-600 shadow-lg cursor-move ${isDragging ? 'opacity-90' : ''} ${isResizingLocal ? 'opacity-90' : ''}`}
               style={{
                 ...(localVideoPosition.x !== null && localVideoPosition.y !== null ? {
                   left: `${localVideoPosition.x}px`,
@@ -996,6 +1128,17 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
                   left: 'auto',
                   top: 'auto',
                 }),
+                ...(localVideoSize.width !== null && localVideoSize.height !== null ? {
+                  width: `${localVideoSize.width}px`,
+                  height: `${localVideoSize.height}px`,
+                } : {
+                  width: '8rem', // w-32
+                  height: '6rem', // h-24
+                }),
+                ...(window.innerWidth >= 768 && localVideoSize.width === null && localVideoSize.height === null ? {
+                  width: '12rem', // md:w-48
+                  height: '9rem', // md:h-36
+                } : {}),
                 touchAction: 'none',
               }}
               onMouseDown={handleDragStart}
@@ -1018,8 +1161,49 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
                   </div>
                 )}
               </div>
-              <div className="absolute bottom-1 left-1 md:bottom-1.5 md:left-1.5 bg-black bg-opacity-70 text-white px-1 md:px-1.5 py-0.5 rounded text-[8px] md:text-[9px] pointer-events-none">
+              <div className="absolute bottom-1 left-1 md:bottom-1.5 md:left-1.5 bg-black bg-opacity-70 text-white px-1 md:px-1.5 py-0.5 rounded text-[8px] md:text-[9px] pointer-events-none z-10">
                 {userName || 'You'}
+              </div>
+              
+              {/* Resize Handles */}
+              {/* Top-left corner */}
+              <div
+                className="resize-handle absolute top-0 left-0 w-5 h-5 md:w-4 md:h-4 cursor-nwse-resize z-20 hover:bg-blue-400 hover:bg-opacity-20 transition-colors"
+                style={{ touchAction: 'none' }}
+                onMouseDown={(e) => handleLocalResizeStart(e, 'nw')}
+                onTouchStart={(e) => handleLocalResizeStart(e, 'nw')}
+              >
+                <div className="absolute top-0 left-0 w-4 h-4 md:w-3 md:h-3 border-l-2 border-t-2 border-blue-400 rounded-tl-lg"></div>
+              </div>
+              
+              {/* Top-right corner */}
+              <div
+                className="resize-handle absolute top-0 right-0 w-5 h-5 md:w-4 md:h-4 cursor-nesw-resize z-20 hover:bg-blue-400 hover:bg-opacity-20 transition-colors"
+                style={{ touchAction: 'none' }}
+                onMouseDown={(e) => handleLocalResizeStart(e, 'ne')}
+                onTouchStart={(e) => handleLocalResizeStart(e, 'ne')}
+              >
+                <div className="absolute top-0 right-0 w-4 h-4 md:w-3 md:h-3 border-r-2 border-t-2 border-blue-400 rounded-tr-lg"></div>
+              </div>
+              
+              {/* Bottom-left corner */}
+              <div
+                className="resize-handle absolute bottom-0 left-0 w-5 h-5 md:w-4 md:h-4 cursor-nesw-resize z-20 hover:bg-blue-400 hover:bg-opacity-20 transition-colors"
+                style={{ touchAction: 'none' }}
+                onMouseDown={(e) => handleLocalResizeStart(e, 'sw')}
+                onTouchStart={(e) => handleLocalResizeStart(e, 'sw')}
+              >
+                <div className="absolute bottom-0 left-0 w-4 h-4 md:w-3 md:h-3 border-l-2 border-b-2 border-blue-400 rounded-bl-lg"></div>
+              </div>
+              
+              {/* Bottom-right corner */}
+              <div
+                className="resize-handle absolute bottom-0 right-0 w-5 h-5 md:w-4 md:h-4 cursor-nwse-resize z-20 hover:bg-blue-400 hover:bg-opacity-20 transition-colors"
+                style={{ touchAction: 'none' }}
+                onMouseDown={(e) => handleLocalResizeStart(e, 'se')}
+                onTouchStart={(e) => handleLocalResizeStart(e, 'se')}
+              >
+                <div className="absolute bottom-0 right-0 w-4 h-4 md:w-3 md:h-3 border-r-2 border-b-2 border-blue-400 rounded-br-lg"></div>
               </div>
             </div>
 
