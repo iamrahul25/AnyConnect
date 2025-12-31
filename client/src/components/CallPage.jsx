@@ -123,11 +123,40 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
     let visualViewportHandlers = null
     if (window.visualViewport) {
       const handleViewportChange = () => {
-        setHeight()
+        // Use a small delay to ensure keyboard animation completes
+        setTimeout(() => {
+          setHeight()
+        }, 100)
       }
       window.visualViewport.addEventListener('resize', handleViewportChange)
       window.visualViewport.addEventListener('scroll', handleViewportChange)
       visualViewportHandlers = handleViewportChange
+    }
+
+    // Handle focus/blur events to recalculate when keyboard appears/disappears
+    const handleFocus = () => {
+      // Keyboard is opening, recalculate after a short delay
+      setTimeout(() => {
+        setHeight()
+      }, 300)
+    }
+
+    const handleBlur = () => {
+      // Keyboard is closing, recalculate after animation completes
+      setTimeout(() => {
+        setHeight()
+        // Prevent scroll to top on mobile
+        if (window.scrollY !== 0) {
+          window.scrollTo(0, 0)
+        }
+      }, 300)
+    }
+
+    // Listen for input focus/blur events on mobile
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+    if (isMobile) {
+      document.addEventListener('focusin', handleFocus)
+      document.addEventListener('focusout', handleBlur)
     }
 
     return () => {
@@ -136,6 +165,10 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
       if (window.visualViewport && visualViewportHandlers) {
         window.visualViewport.removeEventListener('resize', visualViewportHandlers)
         window.visualViewport.removeEventListener('scroll', visualViewportHandlers)
+      }
+      if (isMobile) {
+        document.removeEventListener('focusin', handleFocus)
+        document.removeEventListener('focusout', handleBlur)
       }
     }
   }, [])
@@ -1050,7 +1083,11 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
         maxHeight: viewportHeight,
         minHeight: 0,
         width: '100%',
-        position: 'relative'
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0
       }}
     >
       {/* Main Content Area */}
@@ -1400,6 +1437,7 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
 
 function ChatInput({ onSend, disabled, showEmojiPicker, setShowEmojiPicker, emojis }) {
   const [value, setValue] = useState('')
+  const textareaRef = useRef(null)
 
   function submit(e) {
     e.preventDefault()
@@ -1407,6 +1445,11 @@ function ChatInput({ onSend, disabled, showEmojiPicker, setShowEmojiPicker, emoj
     onSend(value.trim())
     setValue('')
     setShowEmojiPicker(false)
+    
+    // Blur the textarea on mobile to close keyboard and trigger viewport recalculation
+    if (textareaRef.current) {
+      textareaRef.current.blur()
+    }
   }
 
   function handleKeyPress(e) {
@@ -1414,6 +1457,16 @@ function ChatInput({ onSend, disabled, showEmojiPicker, setShowEmojiPicker, emoj
       e.preventDefault()
       submit(e)
     }
+  }
+
+  function handleBlur() {
+    // Prevent scroll to top when keyboard closes on mobile
+    // The parent component's useEffect will handle viewport height recalculation
+    setTimeout(() => {
+      if (window.scrollY !== 0) {
+        window.scrollTo(0, 0)
+      }
+    }, 100)
   }
 
   function handleEmojiClick(emoji) {
@@ -1453,9 +1506,11 @@ function ChatInput({ onSend, disabled, showEmojiPicker, setShowEmojiPicker, emoj
           </button>
           <div className="flex-1 min-w-0">
             <textarea
+              ref={textareaRef}
               value={value}
               onChange={(e) => setValue(e.target.value)}
               onKeyPress={handleKeyPress}
+              onBlur={handleBlur}
               placeholder={disabled ? "Waiting for connection..." : "Type a message..."}
               disabled={disabled}
               className="w-full bg-gray-700 text-white rounded-lg px-2 py-1 md:py-1.5 resize-none outline-none focus:ring-2 focus:ring-blue-500 text-sm md:text-base"
