@@ -1481,10 +1481,18 @@ function ChatInput({ onSend, disabled, showEmojiPicker, setShowEmojiPicker, emoj
     setValue('')
     setShowEmojiPicker(false)
     
-    // Blur the textarea on mobile to close keyboard and trigger viewport recalculation
-    if (textareaRef.current) {
+    // On mobile, blur to close keyboard and trigger viewport recalculation, then refocus
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+    if (isMobile && textareaRef.current) {
       textareaRef.current.blur()
+      // Refocus after a short delay to keep cursor in focus
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus()
+        }
+      }, 100)
     }
+    // On desktop, keep focus - no blur needed
   }
 
   function handleKeyPress(e) {
