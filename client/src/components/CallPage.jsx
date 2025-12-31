@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Video, VideoOff, Mic, MicOff, MessageSquare, Phone, SkipForward, Send, Smile } from 'lucide-react'
+import { Video, VideoOff, Mic, MicOff, MessageSquare, Phone, SkipForward, Send, Smile, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react'
 
 // ChatMessages component with auto-scroll
 function ChatMessages({ messages }) {
@@ -70,6 +70,9 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
   const [peerVideoEnabled, setPeerVideoEnabled] = useState(true)
   const [showChat, setShowChat] = useState(true)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [videoSize, setVideoSize] = useState({ width: null, height: null }) // null means use flex-1
+  const [isResizing, setIsResizing] = useState(false)
+  const containerRef = useRef(null)
 
   const localVideoRef = useRef(null)
   const remoteVideoRef = useRef(null)
@@ -650,12 +653,79 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
 
   const isConnected = matched && !isConnecting
 
+  // Handle resize logic
+  const handleResizeStart = (e) => {
+    setIsResizing(true)
+    e.preventDefault()
+  }
+
+  const handleResize = (e) => {
+    if (!isResizing || !containerRef.current) return
+
+    const container = containerRef.current
+    const rect = container.getBoundingClientRect()
+    const isMobile = window.innerWidth < 768 // md breakpoint
+
+    if (isMobile) {
+      // Vertical resize (mobile)
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY
+      const newHeight = ((clientY - rect.top) / rect.height) * 100
+      // Constrain between 10% and 90% to allow very small sizes
+      const constrainedHeight = Math.max(10, Math.min(90, newHeight))
+      setVideoSize({ width: null, height: constrainedHeight })
+    } else {
+      // Horizontal resize (desktop)
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX
+      const newWidth = ((clientX - rect.left) / rect.width) * 100
+      // Constrain between 10% and 90% to allow very small sizes
+      const constrainedWidth = Math.max(10, Math.min(90, newWidth))
+      setVideoSize({ width: constrainedWidth, height: null })
+    }
+  }
+
+  const handleResizeEnd = () => {
+    setIsResizing(false)
+  }
+
+  useEffect(() => {
+    if (isResizing) {
+      const handleMouseMove = (e) => handleResize(e)
+      const handleMouseUp = () => handleResizeEnd()
+      const handleTouchMove = (e) => handleResize(e)
+      const handleTouchEnd = () => handleResizeEnd()
+
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+      document.addEventListener('touchmove', handleTouchMove, { passive: false })
+      document.addEventListener('touchend', handleTouchEnd)
+
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove)
+        document.removeEventListener('mouseup', handleMouseUp)
+        document.removeEventListener('touchmove', handleTouchMove)
+        document.removeEventListener('touchend', handleTouchEnd)
+      }
+    }
+  }, [isResizing])
+
   return (
     <div className="w-full h-screen bg-gray-900 flex flex-col overflow-hidden">
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+      <div ref={containerRef} className="flex-1 flex flex-col md:flex-row overflow-hidden relative">
         {/* Video Section */}
-        <div className="flex-1 relative bg-black min-h-0">
+        <div 
+          className={`relative bg-black min-h-0 ${
+            videoSize.width === null && videoSize.height === null ? 'flex-1' : ''
+          }`}
+          style={{
+            ...(videoSize.width !== null && {
+              width: `${videoSize.width}%`,
+            }),
+            ...(videoSize.height !== null && {
+              height: `${videoSize.height}%`,
+            }),
+          }}
+        >
             {/* Other Person's Video (Main) */}
           <div className="w-full h-full relative">
             <div className="w-full h-full bg-gray-800 flex items-center justify-center">
@@ -737,9 +807,70 @@ export default function CallPage({ ws, userId, userName, queueCount, onEndCall }
           </div>
         </div>
 
+        {/* Resizable Divider - Mobile (Horizontal) */}
+        {showChat && (
+          <div
+            className={`md:hidden absolute bg-gray-700 hover:bg-gray-500 transition-colors z-10 flex items-center justify-center cursor-row-resize active:bg-blue-600 ${
+              isResizing ? 'bg-blue-600' : ''
+            }`}
+            style={{
+              top: videoSize.height !== null ? `${videoSize.height}%` : 'calc(100% - 16rem)',
+              left: 0,
+              right: 0,
+              height: '6px',
+              width: '100%',
+              touchAction: 'none',
+            }}
+            onMouseDown={handleResizeStart}
+            onTouchStart={handleResizeStart}
+          >
+            <div className="flex items-center gap-0.5 opacity-70 hover:opacity-100 transition-opacity">
+              <ChevronUp className="w-3.5 h-3.5 text-gray-300" />
+              <ChevronDown className="w-3.5 h-3.5 text-gray-300" />
+            </div>
+          </div>
+        )}
+
+        {/* Resizable Divider - Desktop (Vertical) */}
+        {showChat && (
+          <div
+            className={`hidden md:flex absolute bg-gray-700 hover:bg-gray-500 transition-colors z-10 items-center justify-center cursor-col-resize active:bg-blue-600 ${
+              isResizing ? 'bg-blue-600' : ''
+            }`}
+            style={{
+              top: 0,
+              bottom: 0,
+              left: videoSize.width !== null ? `${videoSize.width}%` : 'calc(100% - 18rem)',
+              width: '6px',
+              height: '100%',
+            }}
+            onMouseDown={handleResizeStart}
+            onTouchStart={handleResizeStart}
+          >
+            <div className="flex items-center gap-0.5 opacity-70 hover:opacity-100 transition-opacity">
+              <ChevronLeft className="w-3.5 h-3.5 text-gray-300" />
+              <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
+            </div>
+          </div>
+        )}
+
         {/* Chat Section */}
         {showChat && (
-          <div className="w-full md:w-72 h-64 md:h-auto bg-gray-800 flex flex-col border-t md:border-t-0 md:border-l border-gray-700">
+          <div 
+            className={`bg-gray-800 flex flex-col border-t md:border-t-0 md:border-l border-gray-700 ${
+              videoSize.width === null && videoSize.height === null 
+                ? 'w-full md:w-72 h-64 md:h-auto' 
+                : ''
+            }`}
+            style={{
+              ...(videoSize.width !== null && {
+                width: `calc(${100 - videoSize.width}% - 4px)`,
+              }),
+              ...(videoSize.height !== null && {
+                height: `calc(${100 - videoSize.height}% - 4px)`,
+              }),
+            }}
+          >
             {/* Chat Header */}
             <div className="p-2 md:p-3 bg-gray-900 border-b border-gray-700 flex-shrink-0">
               <h2 className="text-white flex items-center gap-1.5 text-sm md:text-base">
